@@ -37,7 +37,7 @@ Mocked provider checks verify request scoping and response/error sanitization. T
 
 ## Current limits
 
-- The voice-worker and Syncro domain directories document integration boundaries; they are not operational workers/adapters yet.
+- The PBX voice-worker remains an integration boundary. Browser calls now use the shared Syncro/intake adapter described in the browser demo extension below.
 - PBX checks stay blocked. Model/customer read access never proves voice or ticket-write capability.
 - SQLite persistence is implemented; PostgreSQL abstraction/migration and multi-worker concurrency are not yet implemented.
 - Export is bounded to 10000 turns and 10000 events per call. User listing is capped at 200 accounts. Add streaming export/account pagination before larger deployments.

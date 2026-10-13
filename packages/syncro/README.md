@@ -1,3 +1,3 @@
 # Syncro adapter boundary
 
-The official OpenAPI snapshot and inspected routes are in `docs/contracts/`. This foundation implements only a read-only customer-list connection check in the server. Phase 3 will add the typed resolver and ticket adapter after tenant options and permissions are verified. No ticket-create or append requests are issued yet.
+The official OpenAPI snapshot and inspected routes are in `docs/contracts/`. Browser demos use the typed `src/read-client.ts` adapter for bounded customer/contact/ticket lookups and optional single-attempt test-ticket creation restricted to an explicitly selected customer. Ticket append and production retry/reconciliation remain pending. See `docs/browser-demo-calls.md`.
