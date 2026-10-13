@@ -20,4 +20,8 @@ Security audit pagination returns `{items,nextCursor}` and accepts `after`/`limi
 
 ## Planned integrations
 
-No live call ingestion route, ticket submission endpoint, external tool server, retention delete endpoint, backup export or audio playback endpoint is exposed in this milestone. Phase 2/3 will add those through tested internal services and scoped worker access.
+No PBX ingestion route, external tool server, retention delete endpoint or backup export is exposed. Browser demos have scoped server-controlled tools; see browser-demo-calls.md. Phase 2/3 will add those through tested internal services and scoped worker access.
+
+## Browser-call routes
+
+Admin-only routes use the same cookie, origin and CSRF checks: `GET /api/demo-calls/status`, `POST /api/demo-calls` with `{sdp,writeMode?,testCustomerId?}`, `GET /api/demo-calls/:id`, and POST `activate`, `heartbeat`, `end` under that call. Call IDs are bound to the starting admin. Start returns only the local ID, SDP answer and safe mode/version metadata. Preview is the default; live_test requires a permitted customer ID and a new spoken confirmation before the backend write. Transcripts, events and draft results are available from the snapshot and retained history.

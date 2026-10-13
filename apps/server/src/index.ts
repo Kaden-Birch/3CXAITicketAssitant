@@ -43,11 +43,12 @@ const app = await buildApp({
   bootstrapToken: readFileSync(tokenFile, "utf8").trim(),
   origin,
   demo,
+  browserDemoEnabled: process.env.BROWSER_DEMO_CALLS !== "false",
   webRoot: resolve("apps/web/dist"),
 });
 await app.listen({ port, host: process.env.HOST ?? "127.0.0.1" });
 console.log(
-  `ChinookIT AI Receptionist: ${origin}; target 3CX V20 Update 10; live voice disabled.`,
+  `ChinookIT AI Receptionist: ${origin}; target 3CX V20 Update 10; PBX voice disabled; browser calls available when enabled.`,
 );
 if (!store.db.prepare("SELECT id FROM users LIMIT 1").get())
   console.log(

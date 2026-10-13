@@ -179,6 +179,7 @@ test("support user sees history but cannot access credentials, create users, cha
   const id = history.json().items[0].id;
   for (const url of [
     "/api/settings/connections",
+    "/api/demo-calls/status",
     "/api/admin/users",
     `/api/conversations/${id}/export`,
   ])

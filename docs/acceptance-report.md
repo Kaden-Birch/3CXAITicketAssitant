@@ -47,3 +47,9 @@ Mocked provider checks verify request scoping and response/error sanitization. T
 - No production data processing or retention policy has been approved in this session.
 
 See `build-checklist.md` for the next gates and `integration-verification.md` for nonsecret prerequisites.
+
+## Browser demo extension
+
+Added a server-controlled WebRTC demo-call screen with saved agent settings, microphone mute/end, redacted history and shared Syncro/intake tools. Preview-only submission is the default. An explicitly selected real-test mode restricts writes to the supplied customer ID, labels the ticket, verifies a new spoken confirmation, and guards duplicate/uncertain submissions.
+
+22 backend tests and two browser workflows cover provider mocks, secret boundaries, transcript deduplication, safe preview, customer scope, one confirmed real write, rejected/malformed/time-out writes, UI mode gates and media cleanup. Live OpenAI audio, real account permissions and actual ticket creation remain unverified; no real call or ticket was made during implementation. The PBX and production hardening acceptance gates remain unchanged.

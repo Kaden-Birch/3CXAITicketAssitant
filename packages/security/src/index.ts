@@ -62,3 +62,16 @@ export function redact(text: string, secrets: string[] = []): string {
       "[REDACTED PATIENT INFORMATION]",
     );
 }
+
+export function mapStrings(
+  value: unknown,
+  transform: (text: string) => string,
+): unknown {
+  if (typeof value === "string") return transform(value);
+  if (Array.isArray(value)) return value.map((v) => mapStrings(v, transform));
+  if (value && typeof value === "object")
+    return Object.fromEntries(
+      Object.entries(value).map(([k, v]) => [k, mapStrings(v, transform)]),
+    );
+  return value;
+}

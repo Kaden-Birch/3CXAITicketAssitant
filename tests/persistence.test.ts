@@ -20,7 +20,7 @@ test("migrations and history survive restart and demo seeding never duplicates c
       id,
     );
     assert.deepEqual(s.setting("persistent-test"), { enabled: true });
-    assert.equal(s.db.prepare("SELECT count(*) n FROM migrations").get()!.n, 1);
+    assert.equal(s.db.prepare("SELECT count(*) n FROM migrations").get()!.n, 2);
     assert.equal(
       s.db.prepare("SELECT count(*) n FROM turns_fts").get()!.n,
       375,

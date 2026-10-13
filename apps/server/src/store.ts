@@ -26,6 +26,22 @@ export class Store {
         this.db.exec("INSERT INTO migrations VALUES(1)");
       });
     }
+    if (
+      !this.db.prepare("SELECT version FROM migrations WHERE version=2").get()
+    ) {
+      this.transaction(() => {
+        this.db.exec(
+          readFileSync(
+            new URL(
+              "../../../db/migrations/002-browser-calls.sql",
+              import.meta.url,
+            ),
+            "utf8",
+          ),
+        );
+        this.db.exec("INSERT INTO migrations VALUES(2)");
+      });
+    }
     if (!this.db.prepare("SELECT id FROM prompt_versions LIMIT 1").get()) {
       const id = randomUUID();
       this.db
@@ -90,7 +106,9 @@ export class Store {
             "Demo West Clinic",
           ][i % 3];
         this.db
-          .prepare("INSERT INTO sessions VALUES(?,?,?,?,?,?,?,?,?,?,?,?)")
+          .prepare(
+            "INSERT INTO sessions(id,started_at,ended_at,state,outcome,clinic_name,caller_number_masked,summary,prompt_version_id,transcript_status,ticket_id,is_demo) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+          )
           .run(
             id,
             date,

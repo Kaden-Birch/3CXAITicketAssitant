@@ -106,6 +106,43 @@ const routes: [string, string, string, string, unknown?][] = [
   ],
   ["get", "/api/admin/audit", "admin", "Cursor-paginated security audit"],
 ];
+routes.push(
+  [
+    "get",
+    "/api/demo-calls/status",
+    "admin",
+    "Browser-call configuration readiness",
+  ],
+  [
+    "post",
+    "/api/demo-calls",
+    "admin",
+    "Create browser demo; preview default, live_test requires customer ID",
+    {
+      type: "object",
+      required: ["sdp"],
+      properties: {
+        sdp: { type: "string", maxLength: 18000 },
+        writeMode: {
+          type: "string",
+          enum: ["preview", "live_test"],
+          default: "preview",
+        },
+        testCustomerId: { type: "string", pattern: "^\\d+$" },
+      },
+    },
+  ],
+  ["get", "/api/demo-calls/{id}", "admin", "Owned browser-call snapshot"],
+  ...["activate", "heartbeat", "end"].map(
+    (action) =>
+      [
+        "post",
+        `/api/demo-calls/{id}/${action}`,
+        "admin",
+        `Browser call ${action}`,
+      ] as [string, string, string, string],
+  ),
+);
 for (const [method, path, access, description, schema] of routes) {
   const parameters: any[] = [];
   for (const part of path.matchAll(/\{(\w+)\}/g))

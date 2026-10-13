@@ -18,6 +18,7 @@ import {
   decrypt,
   redact,
 } from "../../../packages/security/src/index.ts";
+import { DemoCalls, type DemoOptions } from "./demo-calls.ts";
 const providerSchema = z.enum(["pbx", "openai", "syncro"]);
 type User = {
   id: string;
@@ -38,6 +39,8 @@ export type AppOptions = {
   demo: boolean;
   webRoot?: string;
   fetchProvider?: typeof fetch;
+  browserDemoEnabled?: boolean;
+  connectDemo?: DemoOptions["connect"];
 };
 function fail(status: number, code: string): never {
   throw Object.assign(new Error(code), { statusCode: status, code });
@@ -213,6 +216,7 @@ export async function buildApp(o: AppOptions) {
     },
   );
   app.post("/api/auth/logout", { preHandler: auth }, async (req, reply) => {
+    await demos.endOwner(req.actor!.id);
     d.prepare("DELETE FROM auth_sessions WHERE token_hash=?").run(
       digest(req.cookies.chinook_session!),
     );
@@ -306,7 +310,7 @@ export async function buildApp(o: AppOptions) {
         models?: string[];
         testedAt?: string;
       };
-      if (o.demo)
+      if (o.demo && !o.browserDemoEnabled)
         result = {
           status: "blocked",
           message:
@@ -654,6 +658,40 @@ export async function buildApp(o: AppOptions) {
           : null,
     };
   });
+  const demos = new DemoCalls({
+    store: o.store,
+    key: o.key,
+    enabled: o.browserDemoEnabled ?? false,
+    fetcher: o.fetchProvider,
+    connect: o.connectDemo,
+  });
+  app.addHook("onClose", () => demos.close());
+  app.get("/api/demo-calls/status", { preHandler: admin }, async () =>
+    demos.status(),
+  );
+  app.post(
+    "/api/demo-calls",
+    {
+      preHandler: admin,
+      config: { rateLimit: { max: 3, timeWindow: "1 minute" } },
+    },
+    async (req) => demos.start(req.actor!.id, req.body),
+  );
+  app.get("/api/demo-calls/:id", { preHandler: admin }, async (req) =>
+    demos.snapshot(req.actor!.id, (req.params as { id: string }).id),
+  );
+  app.post("/api/demo-calls/:id/activate", { preHandler: admin }, async (req) =>
+    demos.activate(req.actor!.id, (req.params as { id: string }).id),
+  );
+  app.post(
+    "/api/demo-calls/:id/heartbeat",
+    { preHandler: admin },
+    async (req) =>
+      demos.heartbeat(req.actor!.id, (req.params as { id: string }).id),
+  );
+  app.post("/api/demo-calls/:id/end", { preHandler: admin }, async (req) =>
+    demos.end(req.actor!.id, (req.params as { id: string }).id),
+  );
   if (o.webRoot) {
     await app.register(statics, { root: o.webRoot });
     app.setNotFoundHandler((req, reply) => {

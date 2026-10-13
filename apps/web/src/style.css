@@ -531,3 +531,49 @@ td small {
     max-width: 95%;
   }
 }
+.demo-call fieldset {
+  border: 1px solid #d8e2e8;
+  border-radius: 8px;
+  margin: 20px 0;
+  padding: 14px 18px;
+}
+.demo-call legend {
+  font-weight: 650;
+  font-size: 13px;
+}
+.radio-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 500;
+}
+.radio-line input {
+  width: auto;
+  margin: 0;
+}
+.warning {
+  border: 1px solid #e7ca8e;
+  background: #fff6e5;
+  color: #785e2d;
+  border-radius: 8px;
+  padding: 13px;
+  font-size: 13px;
+}
+.ticket-preview {
+  background: #f1f7f5;
+  border: 1px solid #d2e5dc;
+  padding: 18px;
+  border-radius: 8px;
+  margin: 20px 0;
+}
+.demo-call audio {
+  max-width: 100%;
+  margin: 10px 0;
+}
+.demo-call details {
+  margin-top: 25px;
+}
+.demo-call summary {
+  cursor: pointer;
+  font-weight: 600;
+}

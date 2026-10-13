@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
+import { DemoCall } from "./DemoCall.tsx";
 type Actor = { email: string; role: "admin" | "support"; csrf: string };
 let csrf = "";
 async function api(path: string, method = "GET", body?: unknown) {
@@ -84,7 +85,7 @@ function App() {
         </p>
         {demo && (
           <div className="banner">
-            Synthetic demo · live voice and external API calls disabled
+            Sample history · browser demo calls available after setup
           </div>
         )}
         <form
@@ -154,7 +155,13 @@ function App() {
             "Overview",
             "Conversations",
             ...(actor.role === "admin"
-              ? ["Connections", "Agent settings", "Users", "Maintenance"]
+              ? [
+                  "Demo call",
+                  "Connections",
+                  "Agent settings",
+                  "Users",
+                  "Maintenance",
+                ]
               : []),
           ].map((p) => (
             <button
@@ -197,8 +204,8 @@ function App() {
         </header>
         <div className="banner">
           {demo
-            ? "This workspace contains synthetic calls. No real Syncro tickets are created."
-            : "Live voice is disabled until the integration checks and internal call test pass."}{" "}
+            ? "This workspace contains synthetic calls. Browser demo calls use configured APIs only when started; real test tickets require explicit selection."
+            : "3CX calls remain disabled until the PBX integration checks and internal call test pass."}{" "}
           Target PBX: 3CX V20 Update 10.
         </div>
         {error && (
@@ -211,6 +218,7 @@ function App() {
             {notice}
           </div>
         )}
+        {page === "Demo call" && <DemoCall request={api} />}
         {page === "Overview" && <Overview run={run} navigate={setPage} />}
         {page === "Conversations" && (
           <Conversations run={run} admin={actor.role === "admin"} />
@@ -278,7 +286,10 @@ function Overview({ run, navigate }: Run & { navigate: (p: string) => void }) {
               </p>
             </li>
           </ol>
-          <button onClick={() => navigate("Connections")}>
+          <button onClick={() => navigate("Demo call")}>
+            Test Ryan in browser
+          </button>{" "}
+          <button className="secondary" onClick={() => navigate("Connections")}>
             Configure connections
           </button>
         </section>
@@ -343,7 +354,11 @@ function Conversations({ run, admin }: Run & { admin: boolean }) {
           <div className="detail-head">
             <div>
               <p className="eyebrow">
-                {detail.session.is_demo ? "SYNTHETIC CALL" : "CALL RECORD"}
+                {detail.session.source === "browser_demo"
+                  ? "BROWSER DEMO CALL"
+                  : detail.session.is_demo
+                    ? "SYNTHETIC CALL"
+                    : "CALL RECORD"}
               </p>
               <h2>{detail.session.clinic_name}</h2>
               <p>
@@ -407,8 +422,8 @@ function Conversations({ run, admin }: Run & { admin: boolean }) {
               <p>{detail.session.summary}</p>
               {detail.session.is_demo ? (
                 <div className="banner">
-                  Demo ticket references are synthetic. No request was sent to
-                  Syncro.
+                  This is a test record. Browser-call ticket results are listed
+                  in its event timeline. Seeded DEMO references are synthetic.
                 </div>
               ) : (
                 <p>
@@ -540,7 +555,13 @@ function Conversations({ run, admin }: Run & { admin: boolean }) {
               <tr key={s.id}>
                 <td>
                   {fmt(s.started_at)}
-                  <small>{s.is_demo ? "Synthetic call" : ""}</small>
+                  <small>
+                    {s.source === "browser_demo"
+                      ? "Browser demo"
+                      : s.is_demo
+                        ? "Synthetic call"
+                        : ""}
+                  </small>
                 </td>
                 <td>
                   <strong>{s.clinic_name}</strong>
@@ -944,7 +965,7 @@ function Maintenance({ run }: Run) {
       <section className="card">
         <h2>Deployment checks</h2>
         <p>
-          Database: SQLite WAL · schema version 1. Audio recording is disabled.
+          Database: SQLite WAL · schema version 2. Audio recording is disabled.
         </p>
         <div className="banner">
           Retention automation, backup restore verification, key rotation and

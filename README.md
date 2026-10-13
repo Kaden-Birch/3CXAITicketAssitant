@@ -1,8 +1,8 @@
 # ChinookIT AI Receptionist
 
-Ryan is the ChinookIT AI support receptionist. This repository contains the first runnable development milestone: an authenticated admin application, encrypted connection settings and a searchable SQLite conversation store. The target PBX is **3CX V20 Update 10**.
+Ryan is the ChinookIT AI support receptionist. This repository contains a development foundation and browser voice-test flow: an authenticated admin application, encrypted connection settings and a searchable SQLite conversation store. The target PBX is **3CX V20 Update 10**.
 
-**Live calls and Syncro ticket writes are not enabled.** Synthetic records are visibly marked. See [integration verification](docs/integration-verification.md), [build checklist](docs/build-checklist.md) and [acceptance report](docs/acceptance-report.md) for verified work and outstanding prerequisites.
+**Production PBX calls are not enabled.** Browser demo calls can use saved OpenAI/Syncro credentials, with ticket previews by default and explicitly enabled real test-ticket creation. Synthetic records and browser calls are visibly marked. See [integration verification](docs/integration-verification.md), [build checklist](docs/build-checklist.md) and [acceptance report](docs/acceptance-report.md) for verified work and outstanding prerequisites.
 
 ## Run a local synthetic demo
 
@@ -16,7 +16,7 @@ DEMO_MODE=true npm start
 
 Open `http://localhost:3000`. On first start, the server creates `.data/bootstrap.token` with owner-only permissions. Read it locally and enter it in the first-admin form. Create your own administrator email and password (14 characters minimum); no default account exists. Do not publish the token or enter real provider credentials in a development demo.
 
-Demo mode seeds 75 synthetic calls with completed, transferred, abandoned, failed and no-ticket outcomes. It blocks all external provider tests. Ryan's name, greeting and system prompt are editable and versioned; caller confirmation remains mandatory.
+Demo mode seeds 75 synthetic calls with completed, transferred, abandoned, failed and no-ticket outcomes. Browser testing is enabled by default; explicit connection checks and Start demo call actions can contact the saved providers. Set BROWSER_DEMO_CALLS=false for completely offline testing. Ryan's name, greeting and system prompt are editable and versioned; caller confirmation remains mandatory.
 
 ## Included in this milestone
 
@@ -38,7 +38,7 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-Browser tests start an isolated demo server and replace only `.data/e2e`, a dedicated disposable test directory. They never touch the normal `.data/receptionist.sqlite`. The CI workflow runs on Node.js 24. Docker scaffolding is provided; container runtime verification is pending.
+Browser tests start an isolated demo server and replace only `.data/e2e`, a dedicated disposable test directory. They never touch the normal `.data/receptionist.sqlite`. The CI workflow runs on Node.js 24. See [browser demo calls](docs/browser-demo-calls.md) for microphone testing and ticket modes. Docker scaffolding is provided; container runtime verification is pending.
 
 ## Deployment and next steps
 

@@ -96,3 +96,132 @@ test("first-run setup, masked settings, search, role restrictions and mobile lay
     ),
   ).toBe(true);
 });
+
+test("browser demo uses preview by default, gates real writes and stops the microphone", async ({
+  page,
+}) => {
+  const id = "12345678-1234-4234-8234-123456789abc";
+  const starts: any[] = [];
+  let ends = 0;
+  await page.addInitScript(() => {
+    (window as any).stoppedTracks = 0;
+    Object.defineProperty(navigator, "mediaDevices", {
+      value: {
+        getUserMedia: async () => ({
+          getTracks: () => [
+            {
+              stop: () => {
+                (window as any).stoppedTracks++;
+              },
+              enabled: true,
+            },
+          ],
+          getAudioTracks: () => [],
+        }),
+      },
+    });
+    (window as any).RTCPeerConnection = class {
+      channel: any;
+      onconnectionstatechange: any;
+      connectionState = "connected";
+      addTrack() {}
+      createDataChannel() {
+        this.channel = {};
+        return this.channel;
+      }
+      async createOffer() {
+        return { sdp: "v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\n" };
+      }
+      async setLocalDescription() {}
+      async setRemoteDescription() {
+        setTimeout(() => this.channel.onopen?.(), 0);
+      }
+      close() {
+        this.connectionState = "closed";
+      }
+    };
+  });
+  await page.route("**/api/demo-calls**", async (route) => {
+    const url = route.request().url();
+    if (url.endsWith("/status"))
+      return route.fulfill({
+        json: {
+          enabled: true,
+          ready: true,
+          agentName: "Ryan",
+          model: "test-realtime",
+          voice: "alloy",
+        },
+      });
+    if (url.endsWith("/api/demo-calls")) {
+      starts.push(route.request().postDataJSON());
+      return route.fulfill({
+        json: {
+          id,
+          sdp: "v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\n",
+          writeMode: starts.at(-1).writeMode,
+        },
+      });
+    }
+    if (url.endsWith("/activate")) return route.fulfill({ json: { ok: true } });
+    if (url.endsWith("/end")) {
+      ends++;
+      return route.fulfill({ json: { ok: true } });
+    }
+    return route.fulfill({
+      json: {
+        id,
+        status: ends ? "ended" : "active",
+        session: { outcome: "no_ticket" },
+        turns: [],
+        events: [],
+        draft: null,
+      },
+    });
+  });
+  await page.goto("/");
+  await page.getByLabel("Email", { exact: true }).fill("ui-admin@example.test");
+  await page.getByLabel(/^Password/).fill("Synthetic UI password 123");
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await page.getByRole("button", { name: "Demo call", exact: true }).click();
+  await expect(
+    page.getByRole("radio", { name: /Demo ticket only/ }),
+  ).toBeChecked();
+  await page
+    .getByRole("button", { name: "Start demo call", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Mute microphone", exact: true }),
+  ).toBeEnabled();
+  expect(starts[0].writeMode).toBe("preview");
+  await page.getByRole("button", { name: "End call", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Start demo call", exact: true }),
+  ).toBeEnabled();
+  expect(await page.evaluate(() => (window as any).stoppedTracks)).toBe(1);
+  await page
+    .getByRole("radio", {
+      name: "Create a real test ticket in Syncro",
+      exact: true,
+    })
+    .check();
+  await expect(
+    page.getByRole("button", { name: "Start demo call", exact: true }),
+  ).toBeDisabled();
+  await page.getByLabel("Syncro test customer ID").fill("42");
+  await page
+    .getByRole("button", { name: "Start demo call", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Mute microphone", exact: true }),
+  ).toBeEnabled();
+  expect(starts[1]).toMatchObject({
+    writeMode: "live_test",
+    testCustomerId: "42",
+  });
+  await page.getByRole("button", { name: "End call", exact: true }).click();
+  await page.screenshot({
+    path: "test-results/browser-demo-call.png",
+    fullPage: true,
+  });
+});

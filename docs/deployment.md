@@ -1,6 +1,6 @@
 # Deployment
 
-This is a development foundation. It does not accept PBX calls or create external tickets. Node 24 LTS is the deployment target; `node:sqlite` is experimental and must be revalidated before runtime upgrades.
+This is a development foundation. It does not accept PBX calls. Browser demos can create a real test ticket only when that mode is explicitly selected. Node 24 LTS is the deployment target; `node:sqlite` is experimental and must be revalidated before runtime upgrades.
 
 ## Local demo
 
@@ -23,7 +23,7 @@ The second command displays the setup token only in your local terminal. Enter i
 
 Use an approved Ubuntu VM with LAN/VPN access and a valid TLS reverse proxy. Provision a separate clean data volume. Supply `DEMO_MODE=false`, an exact HTTPS `APP_ORIGIN`, and `MASTER_ENCRYPTION_KEY` as a random 32-byte value encoded in 64 hexadecimal characters. Protect the environment/secret configuration; never check it into Git. The encryption key is provided outside the UI and must be backed up separately from the database.
 
-`infra/Caddyfile.example` illustrates a host reverse proxy to loopback. This application does not automatically install TLS, DNS or VPN infrastructure. Review the example for your environment before use. Only the model-list/customer-list checks make external requests; live voice remains disabled.
+`infra/Caddyfile.example` illustrates a host reverse proxy to loopback. This application does not automatically install TLS, DNS or VPN infrastructure. Review the example for your environment before use. Explicit browser demos and model/customer read checks can make external requests when BROWSER_DEMO_CALLS is enabled. PBX voice remains disabled. See browser-demo-calls.md.
 
 ## Storage and recovery
 
