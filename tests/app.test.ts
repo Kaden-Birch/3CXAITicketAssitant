@@ -439,3 +439,71 @@ test("non-demo read checks are scoped and discard customer payloads and raw prov
   }
   assert.ok(!JSON.stringify(store.setting("test:syncro")).includes(secret));
 });
+
+test("Syncro addresses normalize safely and invalid saves explain the tenant field without changing credentials", async (t) => {
+  const requests: string[] = [];
+  const { app, store } = await fixture({
+    browserDemoEnabled: true,
+    fetchProvider: async (url) => {
+      requests.push(String(url));
+      return new Response(JSON.stringify({ customers: [] }));
+    },
+  });
+  t.after(async () => {
+    await app.close();
+    store.close();
+  });
+  const a = await setup(app);
+  const save = (tenant: string, secret = "synthetic-syncro-key") =>
+    app.inject({
+      method: "PUT",
+      url: "/api/settings/connections",
+      headers: headers(a),
+      payload: { provider: "syncro", tenant, secret },
+    });
+  for (const tenant of [
+    " Synthetic-Clinic ",
+    "SYNTHETIC-CLINIC.syncromsp.com",
+    " https://Synthetic-Clinic.syncromsp.com/ ",
+  ]) {
+    assert.equal((await save(tenant)).statusCode, 200);
+    assert.equal(store.setting("connection:syncro").tenant, "synthetic-clinic");
+  }
+  const credential = store.db
+    .prepare("SELECT encrypted_blob FROM credentials WHERE provider='syncro'")
+    .get()!.encrypted_blob;
+  for (const tenant of [
+    "evil.example.com",
+    "https://synthetic-clinic.syncromsp.com.evil.example.com",
+    "https://user:password@synthetic-clinic.syncromsp.com",
+    "https://synthetic-clinic.syncromsp.com/customers",
+    "https://synthetic-clinic.syncromsp.com?api_key=private-value",
+    "http://synthetic-clinic.syncromsp.com",
+    "",
+  ]) {
+    const response = await save(tenant, "replacement-secret");
+    assert.equal(response.statusCode, 400);
+    assert.match(response.json().error.message, /Syncro tenant:/);
+    assert.ok(!response.body.includes("private-value"));
+    assert.ok(!response.body.includes("replacement-secret"));
+    assert.equal(store.setting("connection:syncro").tenant, "synthetic-clinic");
+    assert.equal(
+      store.db
+        .prepare(
+          "SELECT encrypted_blob FROM credentials WHERE provider='syncro'",
+        )
+        .get()!.encrypted_blob,
+      credential,
+    );
+  }
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/settings/test/syncro",
+    headers: headers(a),
+    payload: {},
+  });
+  assert.equal(response.json().status, "read_access_verified");
+  assert.deepEqual(requests, [
+    "https://synthetic-clinic.syncromsp.com/api/v1/customers?page=1",
+  ]);
+});

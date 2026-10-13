@@ -30,6 +30,28 @@ test("first-run setup, masked settings, search, role restrictions and mobile lay
   await expect(page.getByRole("status")).toContainText(
     "Demo mode does not contact external providers",
   );
+  const syncro = page.locator("section").filter({
+    has: page.getByRole("heading", { name: "Syncro MSP", exact: true }),
+  });
+  await syncro
+    .getByLabel("Syncro tenant or address")
+    .fill("https://wrong.example.com");
+  await syncro
+    .getByLabel("API key", { exact: true })
+    .fill("synthetic-syncro-key");
+  await syncro.getByRole("button", { name: "Save connection" }).click();
+  await expect(page.getByRole("alert")).toContainText("Syncro tenant:");
+  await syncro
+    .getByLabel("Syncro tenant or address")
+    .fill(" https://Synthetic-Clinic.syncromsp.com/ ");
+  await syncro.getByRole("button", { name: "Save connection" }).click();
+  await expect(page.getByRole("status")).toContainText("Connection saved");
+  await expect(syncro.getByLabel("API key", { exact: true })).toHaveValue("");
+  await page.getByRole("button", { name: "Overview", exact: true }).click();
+  await page.getByRole("button", { name: "Connections", exact: true }).click();
+  await expect(syncro.getByLabel("Syncro tenant or address")).toHaveValue(
+    "synthetic-clinic",
+  );
   await page
     .getByRole("button", { name: "Conversations", exact: true })
     .click();

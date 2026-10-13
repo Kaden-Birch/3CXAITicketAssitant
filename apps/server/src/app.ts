@@ -8,6 +8,7 @@ import { z } from "zod";
 import { Store } from "./store.ts";
 import {
   connectionSchema,
+  normalizeSyncroTenant,
   agentSchema,
   userSchema,
 } from "../../../packages/shared/src/config.ts";
@@ -66,6 +67,13 @@ export async function buildApp(o: AppOptions) {
             : error instanceof z.ZodError
               ? "INVALID_INPUT"
               : (err.code ?? "REQUEST_REJECTED"),
+        ...(error instanceof z.ZodError
+          ? {
+              message: error.issues.some((issue) => issue.path[0] === "tenant")
+                ? "Syncro tenant: enter your subdomain (for example, chinookit) or https://chinookit.syncromsp.com. Do not include a page path, query, or API key."
+                : "Check the required fields and their formats, then save again.",
+            }
+          : {}),
         correlationId: req.id,
       },
     });
@@ -258,7 +266,12 @@ export async function buildApp(o: AppOptions) {
     }),
   }));
   app.put("/api/settings/connections", { preHandler: admin }, async (req) => {
-    const input = connectionSchema.parse(req.body),
+    const body = req.body as Record<string, unknown> | null;
+    const input = connectionSchema.parse(
+        body?.provider === "syncro"
+          ? { ...body, tenant: normalizeSyncroTenant(body.tenant) }
+          : body,
+      ),
       { secret, ...settings } = input;
     for (const value of Object.values(settings))
       if (typeof value === "string") safeInput(value);

@@ -64,6 +64,14 @@ export const connectionSchema = z.discriminatedUnion("provider", [
     })
     .strict(),
 ]);
+export function normalizeSyncroTenant(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim().toLowerCase();
+  const match = trimmed.match(
+    /^(?:https:\/\/)?([a-z0-9](?:[a-z0-9-]*[a-z0-9])?)\.syncromsp\.com\/?$/,
+  );
+  return match ? match[1] : trimmed;
+}
 export const agentSchema = z
   .object({
     name: z.string().min(1).max(60),

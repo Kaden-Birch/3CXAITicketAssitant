@@ -15,7 +15,10 @@ async function api(path: string, method = "GET", body?: unknown) {
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
   const value = await r.json();
-  if (!r.ok) throw new Error(value.error?.code ?? "Request failed");
+  if (!r.ok)
+    throw new Error(
+      value.error?.message ?? value.error?.code ?? "Request failed",
+    );
   return value;
 }
 const fmt = (value: string) =>
@@ -730,14 +733,17 @@ function Connections({
               )}
               {c.provider === "syncro" && (
                 <label>
-                  Syncro tenant subdomain
+                  Syncro tenant or address
                   <input
                     name="tenant"
                     defaultValue={c.settings?.tenant ?? ""}
                     placeholder="your-company"
                     required
                   />
-                  <small>Used as https://your-company.syncromsp.com</small>
+                  <small>
+                    Enter your-company or https://your-company.syncromsp.com.
+                    Save before testing the connection.
+                  </small>
                 </label>
               )}
               <label>
