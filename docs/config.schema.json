@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "connection": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "provider": {
+              "type": "string",
+              "const": "pbx"
+            },
+            "pbxBase": {
+              "type": "string",
+              "maxLength": 250
+            },
+            "appId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "pattern": "^[a-zA-Z0-9_-]+$"
+            },
+            "targetVersion": {
+              "type": "string",
+              "const": "20 Update 10"
+            },
+            "supportExtension": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^\\d{2,8}$"
+                },
+                {
+                  "type": "string",
+                  "const": ""
+                }
+              ]
+            },
+            "secret": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            }
+          },
+          "required": [
+            "provider",
+            "pbxBase",
+            "appId",
+            "targetVersion",
+            "supportExtension"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "provider": {
+              "type": "string",
+              "const": "openai"
+            },
+            "model": {
+              "type": "string",
+              "maxLength": 100,
+              "pattern": "^[a-zA-Z0-9._-]*$"
+            },
+            "voice": {
+              "type": "string",
+              "maxLength": 40,
+              "pattern": "^[a-zA-Z0-9_-]*$"
+            },
+            "secret": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            }
+          },
+          "required": [
+            "provider",
+            "model",
+            "voice"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "provider": {
+              "type": "string",
+              "const": "syncro"
+            },
+            "tenant": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 63,
+              "pattern": "^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$"
+            },
+            "secret": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            }
+          },
+          "required": [
+            "provider",
+            "tenant"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "agent": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "greeting": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "prompt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8000
+        },
+        "maxQuestions": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 20
+        },
+        "requireConfirmation": {
+          "type": "boolean",
+          "const": true
+        }
+      },
+      "required": [
+        "name",
+        "greeting",
+        "prompt",
+        "maxQuestions",
+        "requireConfirmation"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "connection",
+    "agent"
+  ],
+  "additionalProperties": false
+}

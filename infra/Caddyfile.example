@@ -1,0 +1,4 @@
+# Use a hostname accessible only through your approved LAN/VPN.
+receptionist.example.com {
+    reverse_proxy 127.0.0.1:3000
+}

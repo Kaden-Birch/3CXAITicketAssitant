@@ -1,0 +1,10 @@
+.git
+node_modules
+.data
+work
+test-results
+playwright-report
+vendor
+*.key
+*.token
+.env
