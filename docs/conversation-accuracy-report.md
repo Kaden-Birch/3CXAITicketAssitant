@@ -28,7 +28,7 @@ Migration `003-intake-state.sql` adds `intake_state` for durable structured fact
 
 Automated tests use synthetic identities, provider responses and browser media. They cover conservative matching/confidentiality, forbidden and prototype tool names, attempted directory retrieval, callback digit count and corrections, device preservation, missing surname, fresh confirmation, transcript ordering, semantic configuration, one greeting activation, cancelled tools, delayed cancellation/truncation, FTS removal, duplicate submission, timeout/malformed/rejected writes, preview/live separation, write kill switch, encrypted credentials, retention and migrations. Browser regressions verify patient settings persist and microphone cleanup still works.
 
-Verification passed: `npm run build` (TypeScript and production UI build), `npm run lint`, all 34 backend tests, and both Playwright browser workflows. No live OpenAI call or Syncro write was initiated by the implementation agent.
+Verification passed: `npm run build` (TypeScript and production UI build), `npm run lint`, all 40 backend tests, and both Playwright browser workflows. No live OpenAI call or Syncro write was initiated by the implementation agent.
 
 ## Remaining limitations and live verification
 
@@ -46,3 +46,18 @@ Before production:
 6. Implement the PBX worker against the pinned official example, then test internal 3CX V20 Update 10 calls, barge-in at different playback offsets, queue clearing, late packets, audio truncation, technician transfer and provider outages. Verify completed writes remain completed when speech is interrupted.
 
 Official references: [OpenAI VAD](https://developers.openai.com/api/docs/guides/realtime-vad), [interruption and truncation](https://developers.openai.com/api/docs/guides/realtime-conversations#interruption-and-truncation), the pinned Syncro OpenAPI schema in `docs/contracts`, and the official 3CX upstream source/manifest in `vendor/agentic-call-control` and `docs/integration-verification.md`.
+
+
+## Follow-up from a real browser call
+
+A user-run call exposed two gaps that the initial mocks did not cover: field validation used only the latest ASR text, and ticket preparation required separate confirmations for every name/device field. An unrelated short utterance could therefore reject a spelled correction while repeated field confirmations kept intake looping. The model also proposed an inserted device hyphen and narrated its internal tool steps.
+
+The fixes retain ordered per-field evidence, accept late ASR without overwriting newer facts, and preserve the later correction even within one utterance. A literal caller-supplied device token overrides the model's punctuation formatting, without changing digits or inventing a prefix. Formatting-only phone updates preserve the original capture and confirmation. Unsupported stale updates return an internal repair directive, rather than burdening the caller with another clear-answer question.
+
+Assistant question transcripts now establish readbacks. A fresh yes to the actual readback confirms the corresponding facts automatically; repeated confirmed-clinic lookups and confirmation calls are idempotent. Names and devices can remain awaiting confirmation until one short final summary, instead of separate spelling/checklist rounds. Submission requires a fresh yes to the most recent question that actually read the current summary and its pending facts; a readiness question is insufficient. Response-start audio-turn ordering handles delayed assistant transcript events. Interrupted readbacks are invalidated.
+
+The speaking policy prohibits tool narration, routine spelling, requests to write a summary, readiness questions and revisiting already confirmed facts. If a response has already asked a question, tool completion does not launch a second speaking response. Existing custom prompts remain, with these rules taking precedence.
+
+Additional regression fixtures use fictional identities/numbers/device labels and reproduce the failure pattern, including a spelled name followed by stray text, late ASR, stale name updates, device formatting, repeated confirmations, and an unread-summary readiness yes. Latest verification: 40 backend tests and both browser workflows passed, along with TypeScript/build and formatting checks. No additional OpenAI call or Syncro write was made by the implementation agent. The next user demo should verify actual model speech against this simpler flow.
+
+No new SQL migration is needed for this follow-up. Optional evidence metadata is stored in the existing intake JSON. Historical call records are preserved.

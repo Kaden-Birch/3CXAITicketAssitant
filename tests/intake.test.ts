@@ -137,6 +137,7 @@ test("model-facing tools expose only one clinic name, no directory, contacts, hi
     confirm: true,
   });
   assert.equal(confirm.status, "clarification_required");
+  f.intake.assistantTurn("Did you mean Horizon Family Dental?");
   f.caller("Yes, that's right");
   confirm = await f.execute("match_clinic", {
     name: "Horizon Family Dental",
@@ -196,6 +197,9 @@ test("partial updates preserve confirmed facts, prevent substituted digits and p
     fields: ["callbackNumber"],
   });
   assert.equal(silent.status, "clarification_required");
+  f.intake.assistantTurn(
+    "Kaden Birch, 403-317-1360, workstation W015, printer P016. Is that correct?",
+  );
   f.caller("Yes, those details are correct");
   await f.execute("confirm_intake", { fields: Object.keys(fields) });
   f.caller("Actually my first name is Kayden");
@@ -210,7 +214,7 @@ test("partial updates preserve confirmed facts, prevent substituted digits and p
   const invented = await f.execute("update_intake", {
     fields: { callbackNumber: "403-331-7360", workstationNumber: "W-015" },
   });
-  assert.equal(invented.status, "clarification_required");
+  assert.equal(invented.status, "retry_update");
   assert.equal(invented.fields.callbackNumber, "403-317-1360");
   assert.equal(invented.fields.workstationNumber, "W015");
   f.caller("Change callback to 403-317-2360");
@@ -233,6 +237,7 @@ test("incomplete names and seven-digit callbacks cannot advance to ticket prepar
   const f = fixture(t);
   f.caller("Horizon Dental");
   await f.execute("match_clinic", { name: "Horizon Dental" });
+  f.intake.assistantTurn("Did you mean Horizon Family Dental?");
   f.caller("Yes");
   await f.execute("match_clinic", {
     name: "Horizon Family Dental",
@@ -278,12 +283,188 @@ test("semantic VAD defaults to patient low eagerness and preserves interruption 
     },
   );
   for (const rule of [
-    "exactly once",
-    "ONE short question",
-    "first name and last name",
-    "Caller corrections are authoritative",
+    "ONCE",
+    "one short question",
+    "first and last name",
+    "caller corrections as authoritative",
     "Seven digits",
     "Never guess",
   ])
     assert.ok(conversationPolicy.includes(rule));
+});
+
+test("call regression: trailing noise preserves Kora correction and confirmations do not restart intake", async (t) => {
+  const f = fixture(t);
+  f.caller("I'm calling from Horizon Dental.");
+  await f.execute("match_clinic", { name: "Horizon Dental" });
+  f.intake.assistantTurn("Did you mean Horizon Family Dental?");
+  f.caller("Yep, that's right. Yes, that's correct.");
+  assert.equal(
+    (await f.execute("match_clinic", { name: "Horizon Dental" })).status,
+    "confirmed",
+  );
+  assert.equal(f.searches(), 1);
+  f.caller("Cora Tester");
+  await f.execute("update_intake", {
+    fields: { firstName: "Cora", lastName: "Tester" },
+  });
+  f.caller("4035550136.");
+  await f.execute("update_intake", {
+    fields: { callbackNumber: "4035550136" },
+  });
+  f.intake.assistantTurn(
+    "4 0 3 5 5 5 0 1 3 6. Is that the number you want me to use?",
+  );
+  f.caller("Yep.");
+  assert.equal(
+    (await f.execute("confirm_intake", { fields: ["callbackNumber"] })).status,
+    "confirmed",
+  );
+  f.caller("Imaging app isn't showing my X-rays.");
+  await f.execute("update_intake", {
+    fields: {
+      summary: "Imaging app x-rays not appearing",
+      issueType: "computer",
+    },
+  });
+  f.caller("That's W099.");
+  const device = await f.execute("update_intake", {
+    fields: { workstationNumber: "W-099" },
+  });
+  assert.equal(device.status, "saved");
+  assert.equal(device.fields.workstationNumber, "W099");
+  f.caller("It's DEMO-W099.");
+  await f.execute("update_intake", {
+    fields: { workstationNumber: "DEMO-W099" },
+  });
+  f.intake.assistantTurn("Is your first name spelled C-O-R-A?");
+  f.caller("No, it's K-O-R-A.");
+  f.caller("inches");
+  const name = await f.execute("update_intake", {
+    fields: { firstName: "Kora" },
+  });
+  assert.equal(name.fields.firstName, "Kora");
+  assert.equal(name.fields.lastName, "Tester");
+  assert.equal(name.confirmed.callbackNumber, true);
+  const stale = await f.execute("update_intake", {
+    fields: { firstName: "Cora" },
+  });
+  assert.equal(stale.status, "retry_update");
+  assert.equal(stale.fields.firstName, "Kora");
+  const prepared = await f.execute("prepare_ticket", {});
+  assert.equal(prepared.status, "confirmation_required");
+  assert.match(prepared.spokenSummary, /Kora Tester/);
+  assert.match(prepared.spokenSummary, /DEMO-W099/);
+  assert.equal((prepared.spokenSummary.match(/\?/g) ?? []).length, 1);
+  f.intake.assistantTurn(prepared.spokenSummary);
+  f.caller("Yeah, that's correct for the fourth time.");
+  const result = await f.execute("create_ticket", {
+    draftId: prepared.draftId,
+  });
+  assert.equal(result.outcome, "previewed");
+  assert.equal(f.intake.preview()!.content.callerName, "Kora Tester");
+  assert.equal(f.intake.preview()!.content.workstationNumber, "DEMO-W099");
+  assert.equal(f.intake.preview()!.content.callbackNumber, "+14035550136");
+});
+test("late correction ASR and delayed field saves cannot lose or revert the spelled name", async (t) => {
+  const f = fixture(t);
+  f.caller("Cora Tester");
+  await f.execute("update_intake", {
+    fields: { firstName: "Cora", lastName: "Tester" },
+  });
+  f.intake.assistantTurn(
+    "Is your first name spelled C-O-R-A?",
+    2,
+    "name-question",
+  );
+  f.intake.callerCommitted(3);
+  f.intake.callerCommitted(4);
+  f.intake.callerTurn(4, "inches");
+  f.intake.callerTurn(3, "No, it's K-O-R-A.");
+  const corrected = await f.execute("update_intake", {
+    fields: { firstName: "Kora" },
+  });
+  assert.equal(corrected.fields.firstName, "Kora");
+  assert.equal(corrected.confirmed.firstName, false);
+  f.intake.assistantTurn(
+    "Is your first name K-O-R-A?",
+    4,
+    "corrected-question",
+  );
+  f.intake.callerCommitted(5);
+  f.intake.callerTurn(5, "Yes.");
+  assert.equal(
+    (await f.execute("confirm_intake", { fields: ["firstName"] })).status,
+    "confirmed",
+  );
+  f.intake.callerCommitted(6);
+  f.intake.callerTurn(6, "An unrelated detail");
+  assert.equal(
+    (await f.execute("confirm_intake", { fields: ["firstName"] })).status,
+    "confirmed",
+  );
+  const stale = await f.execute("update_intake", {
+    fields: { firstName: "Cora" },
+  });
+  assert.equal(stale.fields.firstName, "Kora");
+  assert.equal(stale.confirmed.firstName, true);
+});
+test("a fresh yes to a readiness question cannot submit an unread final summary", async (t) => {
+  const f = fixture(t);
+  f.caller(
+    "Horizon Dental, Kora Tester, callback 4035550136, workstation W099",
+  );
+  await f.execute("match_clinic", { name: "Horizon Dental" });
+  f.intake.assistantTurn("Did you mean Horizon Family Dental?");
+  f.caller("Yes");
+  await f.execute("update_intake", {
+    fields: {
+      firstName: "Kora",
+      lastName: "Tester",
+      callbackNumber: "4035550136",
+      workstationNumber: "W099",
+      issueType: "computer",
+      summary: "Imaging app x-rays not appearing",
+    },
+  });
+  f.intake.assistantTurn("Is 4035550136 the callback number?");
+  f.caller("Yes");
+  const prepared = await f.execute("prepare_ticket", {});
+  assert.equal(prepared.status, "confirmation_required");
+  f.intake.assistantTurn("Are you ready for a summary?");
+  f.caller("Yes");
+  assert.equal(
+    (await f.execute("create_ticket", { draftId: prepared.draftId })).status,
+    "clarification_required",
+  );
+  f.intake.assistantTurn(prepared.spokenSummary);
+  f.caller("Yes");
+  assert.equal(
+    (await f.execute("create_ticket", { draftId: prepared.draftId })).outcome,
+    "previewed",
+  );
+});
+
+test("a later correction in the same utterance wins and formatting-only callbacks keep confirmation", async (t) => {
+  const f = fixture(t);
+  f.caller("Cora, actually Kora. My callback is 4035550136.");
+  await f.execute("update_intake", {
+    fields: { firstName: "Cora", callbackNumber: "4035550136" },
+  });
+  const corrected = await f.execute("update_intake", {
+    fields: { firstName: "Kora" },
+  });
+  assert.equal(corrected.fields.firstName, "Kora");
+  const stale = await f.execute("update_intake", {
+    fields: { firstName: "Cora" },
+  });
+  assert.equal(stale.status, "retry_update");
+  assert.equal(stale.fields.firstName, "Kora");
+  f.intake.assistantTurn("Is 4035550136 the callback number?");
+  f.caller("Yes");
+  const formatted = await f.execute("update_intake", {
+    fields: { callbackNumber: "403-555-0136" },
+  });
+  assert.equal(formatted.fields.callbackNumber, "4035550136");
+  assert.equal(formatted.confirmed.callbackNumber, true);
 });

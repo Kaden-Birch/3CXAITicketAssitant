@@ -31,3 +31,5 @@ Backend provider calls and the browser media lifecycle have been tested with moc
 Official references: [WebRTC unified interface](https://developers.openai.com/api/docs/guides/voice-webrtc), [server-side controls](https://developers.openai.com/api/docs/guides/voice-server-controls?voice-api=realtime), [WebRTC hangup](https://developers.openai.com/api/reference/resources/realtime/subresources/calls/methods/hangup), and the pinned [Syncro schema](contracts/syncro.openapi.json).
 
 See [conversation accuracy report](conversation-accuracy-report.md) for the restricted tools, structured fields, migration and live-call checklist.
+
+Confirmations of spoken readbacks are recognized automatically. Names/devices are checked together in the short final summary; only unclear facts or an incomplete/unconfirmed callback need extra questions. Corrections retain their own transcript evidence even if later noise or delayed ASR intervenes. Repeating a confirmed clinic lookup does not restart clinic confirmation.

@@ -53,6 +53,31 @@ export function hasSpokenValue(
   const expected = compact(value);
   return !!expected && compact(transcript).includes(expected);
 }
+// Repair an AI-added/removed hyphen only by using a literal identifier actually spoken.
+// Never repair changed digits or a missing prefix.
+export function capturedIdentifier(
+  transcript: string,
+  proposed: string,
+): string | null {
+  const candidates =
+    transcript
+      .match(/\b[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*\b/g)
+      ?.filter((v) => /\d/.test(v)) ?? [];
+  const matching = candidates.filter(
+    (v) =>
+      v.replaceAll("-", "").toLowerCase() ===
+      proposed.replaceAll("-", "").toLowerCase(),
+  );
+  if (matching.length === 1) return matching[0];
+  if (candidates.length) return null;
+  return hasSpokenValue(transcript, proposed, true) ? proposed : null;
+}
+export function spelledName(transcript: string): string | null {
+  const match = transcript.match(/\b[A-Za-z](?:[-\s]+[A-Za-z]){2,}\b/);
+  if (!match) return null;
+  const letters = match[0].replace(/[^A-Za-z]/g, "").toLowerCase();
+  return letters[0].toUpperCase() + letters.slice(1);
+}
 export function validateCallback(original: string): {
   original: string;
   e164: string | null;

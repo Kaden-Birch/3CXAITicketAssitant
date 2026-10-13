@@ -127,6 +127,20 @@ function caller(socket: Control, text: string, item = randomUUID()) {
   });
   return item;
 }
+function assistant(socket: Control, text: string) {
+  const responseId = randomUUID();
+  socket.emit({ type: "response.created", response: { id: responseId } });
+  socket.emit({
+    type: "response.output_audio_transcript.done",
+    response_id: responseId,
+    item_id: randomUUID(),
+    transcript: text,
+  });
+  socket.emit({
+    type: "response.done",
+    response: { id: responseId, status: "completed" },
+  });
+}
 async function draft(f: Awaited<ReturnType<typeof fixture>>, live = false) {
   const started = await f.manager.start(f.owner, {
     sdp: offer,
@@ -139,6 +153,7 @@ async function draft(f: Awaited<ReturnType<typeof fixture>>, live = false) {
     status: "confirmation_required",
     suggested_clinic_name: "Demo Clinic",
   });
+  assistant(f.socket, "Did you mean Demo Clinic?");
   caller(f.socket, "Yes, that's the clinic");
   await tool(f.socket, "match_clinic", { name: "Demo Clinic", confirm: true });
   caller(
@@ -157,6 +172,10 @@ async function draft(f: Awaited<ReturnType<typeof fixture>>, live = false) {
       details: "password is test-secret. Printing works.",
     },
   });
+  assistant(
+    f.socket,
+    "Demo Caller, 403-317-1360, printer P016, workstation W015. Is that correct?",
+  );
   caller(f.socket, "Yes, those details are correct");
   await tool(f.socket, "confirm_intake", {
     fields: [
@@ -169,6 +188,7 @@ async function draft(f: Awaited<ReturnType<typeof fixture>>, live = false) {
   });
   const prepared = await tool(f.socket, "prepare_ticket", {});
   assert.equal(prepared.status, "confirmation_required");
+  assistant(f.socket, prepared.spokenSummary);
   return { started, prepared };
 }
 test("browser call snapshots hide keys, capture redacted final turns and deduplicate transcripts", async (t) => {
@@ -261,9 +281,14 @@ test("live test requires customer allowlist and creates one correctly labelled c
   await tool(f.socket, "update_intake", {
     fields: { callbackNumber: "403-317-2360" },
   });
+  assistant(
+    f.socket,
+    "Is 403-317-2360 the callback number you want me to use?",
+  );
   caller(f.socket, "Yes, that is correct");
   await tool(f.socket, "confirm_intake", { fields: ["callbackNumber"] });
   prepared = await tool(f.socket, "prepare_ticket", {});
+  assistant(f.socket, prepared.spokenSummary);
   caller(f.socket, "Yes, that is correct");
   const result = await tool(f.socket, "create_ticket", {
     draftId: prepared.draftId,
@@ -347,6 +372,10 @@ test("a delayed earlier yes cannot confirm a later draft; corrections preserve f
     fields: ["callbackNumber"],
   });
   assert.equal(response.status, "clarification_required");
+  assistant(
+    f.socket,
+    "Is 403-317-2360 the callback number you want me to use?",
+  );
   caller(f.socket, "Yes, that's the corrected number");
   await tool(f.socket, "confirm_intake", { fields: ["callbackNumber"] });
   const revised = await tool(f.socket, "prepare_ticket", {});
@@ -357,6 +386,7 @@ test("a delayed earlier yes cannot confirm a later draft; corrections preserve f
   assert.equal(content.workstationNumber, "W015");
   assert.equal(content.lastName, "Caller");
   assert.equal(content.confirmedFields.lastName, true);
+  assistant(f.socket, revised.spokenSummary);
   caller(f.socket, "Yes, correct");
   assert.equal(
     (await tool(f.socket, "create_ticket", { draftId: revised.draftId }))
@@ -388,7 +418,7 @@ test("existing prompts receive mandatory continuity, one greeting and semantic l
     (request.body as FormData).get("session") as string,
   );
   assert.ok(session.instructions.includes("Custom receptionist instructions"));
-  assert.ok(session.instructions.includes("Never greet, introduce yourself"));
+  assert.ok(session.instructions.includes("Never greet or introduce yourself"));
   assert.ok(!session.instructions.includes("customer ID 42"));
   assert.deepEqual(session.audio.input.turn_detection, {
     type: "semantic_vad",
@@ -483,4 +513,81 @@ test("real ticket creation kill switch rejects writes before contacting provider
     /REAL_TICKET_CREATION_DISABLED/,
   );
   assert.equal(f.requests.length, 0);
+});
+
+test("tool completion does not start a second speaking response after Ryan already asked a question", async (t) => {
+  const f = await fixture();
+  t.after(async () => {
+    await f.manager.close();
+    f.store.close();
+  });
+  const started = await f.manager.start(f.owner, { sdp: offer });
+  f.manager.activate(f.owner, started.id);
+  caller(f.socket, "The printer stopped working.");
+  const responseId = randomUUID(),
+    callId = randomUUID();
+  f.socket.emit({ type: "response.created", response: { id: responseId } });
+  f.socket.emit({
+    type: "response.output_audio_transcript.done",
+    response_id: responseId,
+    item_id: randomUUID(),
+    transcript: "Who else is affected?",
+  });
+  const before = f.socket.sent.filter(
+    (e) => e.type === "response.create",
+  ).length;
+  f.socket.emit({
+    type: "response.function_call_arguments.done",
+    response_id: responseId,
+    call_id: callId,
+    name: "update_intake",
+    arguments: JSON.stringify({
+      fields: { summary: "Printer stopped working" },
+    }),
+  });
+  f.socket.emit({
+    type: "response.done",
+    response: { id: responseId, status: "completed" },
+  });
+  for (
+    let i = 0;
+    i < 100 && !f.socket.sent.some((e) => e.item?.call_id === callId);
+    i++
+  )
+    await new Promise((r) => setTimeout(r, 20));
+  assert.ok(f.socket.sent.some((e) => e.item?.call_id === callId));
+  assert.equal(
+    f.socket.sent.filter((e) => e.type === "response.create").length,
+    before,
+  );
+});
+test("a delayed readback transcript recognizes the reply using response-start turn order", async (t) => {
+  const f = await fixture();
+  t.after(async () => {
+    await f.manager.close();
+    f.store.close();
+  });
+  const started = await f.manager.start(f.owner, { sdp: offer });
+  f.manager.activate(f.owner, started.id);
+  caller(f.socket, "4033171360");
+  await tool(f.socket, "update_intake", {
+    fields: { callbackNumber: "4033171360" },
+  });
+  const responseId = randomUUID();
+  f.socket.emit({ type: "response.created", response: { id: responseId } });
+  caller(f.socket, "Yep");
+  f.socket.emit({
+    type: "response.output_audio_transcript.done",
+    response_id: responseId,
+    item_id: randomUUID(),
+    transcript: "4 0 3 3 1 7 1 3 6 0. Is that correct?",
+  });
+  f.socket.emit({
+    type: "response.done",
+    response: { id: responseId, status: "completed" },
+  });
+  const result = await tool(f.socket, "confirm_intake", {
+    fields: ["callbackNumber"],
+  });
+  assert.equal(result.status, "confirmed");
 });

@@ -62,3 +62,9 @@ The latest browser-call behavior supersedes the earlier broad customer/contact/o
 Semantic VAD defaults to Low; mandatory continuity rules apply even with existing custom prompts. Server greeting activation is idempotent. Cancelled/truncated assistant text is withheld from searchable history, and cancelled tool responses do not launch tools. Agent settings now expose VAD, interruption, ticket creation, retention and diagnostic logging. Ended history expires on the configured schedule; uncertain/failed submissions are exempt for review.
 
 Automated provider/media tests cover these boundaries. Natural speech quality, ASR uncertainty, real OpenAI/Syncro account calls and 3CX audio routing are not established by mocks. The production PBX worker remains unimplemented. See [detailed report](conversation-accuracy-report.md).
+
+## Browser confirmation flow follow-up
+
+A user-run call exposed ASR evidence loss and excessive confirmation rounds. The follow-up retains ordered per-field evidence, honors spelled corrections despite later noise/late ASR, preserves literal device tokens, recognizes yes replies to actual spoken readbacks, and makes repeated clinic/confirmation operations idempotent. Names/devices are confirmed together in the final summary. A readiness yes cannot submit an unread summary. Tool completion does not launch another speaking response if the response already asked a question. Existing credentials/history remain unchanged; no new SQL migration.
+
+40 backend tests and both browser workflows pass, including anonymized regression fixtures for the reported failure pattern. Build/type-check and formatting also pass. Actual model speech quality still requires a new user-run demo; mocks do not establish that every utterance will follow the speaking policy.

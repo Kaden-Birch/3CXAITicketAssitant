@@ -100,6 +100,8 @@ type Active = {
   responseId?: string;
   generation?: number;
   truncatedItems?: Set<string>;
+  responseStartTurns?: Map<string, number>;
+  responseQuestions?: Set<string>;
 };
 export type DemoOptions = {
   store: Store;
@@ -572,6 +574,8 @@ export class DemoCalls {
     const type = e.type;
     if (type === "response.created") {
       a.responseId = e.response?.id;
+      a.responseStartTurns ??= new Map();
+      if (a.responseId) a.responseStartTurns.set(a.responseId, a.commitOrder);
       return;
     }
     if (type === "input_audio_buffer.speech_started") {
@@ -673,6 +677,17 @@ export class DemoCalls {
         "UPDATE sessions SET transcript_status='available' WHERE id=?",
       ).run(id);
       if (user) a.intake.callerTurn(a.committed.get(item) ?? -1, text);
+      else if (!interrupted) {
+        a.intake.assistantTurn(
+          text,
+          a.responseStartTurns?.get(e.response_id) ?? a.commitOrder,
+          item,
+        );
+        if (text.includes("?")) {
+          a.responseQuestions ??= new Set();
+          a.responseQuestions.add(e.response_id);
+        }
+      }
       this.event(
         id,
         user ? "transcript.user.final" : "transcript.assistant.final",
@@ -813,6 +828,7 @@ export class DemoCalls {
             this.active.has(id) &&
             !a.speaking &&
             !a.responseId &&
+            !a.responseQuestions?.has(response.id) &&
             continuationGeneration === (a.generation ?? 0)
           )
             a.socket?.send(JSON.stringify({ type: "response.create" }));
@@ -831,6 +847,7 @@ export class DemoCalls {
       );
   }
   private markInterrupted(id: string, itemId: string) {
+    this.active.get(id)?.intake.assistantInterrupted(itemId);
     const item = this.o.store.db
       .prepare(
         "SELECT turn_id FROM assistant_items WHERE item_id=? AND session_id=?",

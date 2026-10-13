@@ -8,6 +8,8 @@ import {
   explicitYes,
   validateCallback,
   hasSpokenValue,
+  capturedIdentifier,
+  spelledName,
 } from "./fields.ts";
 const short = z.string().max(150);
 const fieldSchema = z
@@ -64,9 +66,9 @@ const descriptions: Record<keyof typeof schemas, string> = {
   update_intake:
     "Save caller-provided facts as they arrive or are corrected. Partial updates preserve other fields and clear confirmation only for changed fields. Store exact devices and original callback digits. Mark unavailable only after caller says they cannot provide a field.",
   confirm_intake:
-    "After reading back these fields and receiving a new explicit yes, confirm them. Never confirm from silence, uncertain speech, or a yes spoken before the update.",
+    "Normally unnecessary: yes replies to spoken readbacks are recognized automatically. Already confirmed fields stay confirmed. Do not use this as a checklist or repeat name/device questions; those fields are included in the final summary.",
   prepare_ticket:
-    "Validate saved confirmed fields and prepare an immutable ticket. Ask the short spokenSummary question and wait for a new explicit yes. Returns no technician-facing description.",
+    "Prepare the short final summary after collecting the facts. Names and devices are confirmed together in this summary, not separately. Speak spokenSummary once; after a fresh yes immediately call create_ticket. Do not ask whether the caller is ready or ask them to write the summary.",
   create_ticket:
     "Submit the prepared ticket once after a new explicit yes. Only report a real ticket number if success is true. Never retry an unknown submission outcome.",
   transfer_to_support:
@@ -92,13 +94,26 @@ type IntakeState = {
   clinicTurn: number;
   unmatched: boolean;
   correctionPending?: string[];
+  evidenceTurns?: Partial<Record<Field, number>>;
+  evidencePositions?: Partial<Record<Field, number>>;
 };
 export class DemoIntake {
   private draft: { id: string; turn: number } | null = null;
   private latestTurn = -1;
   private latestCommitted = -1;
   private latestText = "";
-  private evidence: string[] = [];
+  private evidence: { index: number; text: string }[] = [];
+  private readbacks: {
+    turn: number;
+    item: string;
+    text: string;
+    confirmation: boolean;
+    fields: Partial<Record<Field, string>>;
+    clinic: boolean;
+    draftId: string | null;
+  }[] = [];
+  private confirmedByReadback = new Map<Field, string>();
+  private finalReadback: { draftId: string; turn: number } | null = null;
   private matchingAttempts = 0;
   private state: IntakeState;
   constructor(
@@ -142,11 +157,50 @@ export class DemoIntake {
     this.latestCommitted = index;
   }
   callerTurn(index: number, text: string) {
-    if (index < 0 || index < this.latestTurn) return;
-    this.latestTurn = index;
-    this.latestText = text;
-    this.evidence.push(text);
+    if (index < 0) return;
+    this.evidence = this.evidence.filter((e) => e.index !== index);
+    this.evidence.push({ index, text });
+    this.evidence.sort((a, b) => a.index - b.index);
     if (this.evidence.length > 30) this.evidence.shift();
+    if (index >= this.latestTurn) {
+      this.latestTurn = index;
+      this.latestText = text;
+    }
+    const readback = this.readbacks.filter((r) => r.turn < index).at(-1);
+    const nameFields = /\bfirst name\b/i.test(readback?.text ?? "")
+      ? (["firstName"] as Field[])
+      : /\b(?:last name|surname)\b/i.test(readback?.text ?? "")
+        ? (["lastName"] as Field[])
+        : (Object.keys(readback?.fields ?? {}).filter(
+            (f) => f === "firstName" || f === "lastName",
+          ) as Field[]);
+    const correctedName = /^no\b/i.test(text.trim()) ? spelledName(text) : null;
+    if (correctedName && nameFields.length === 1 && !this.immutable()) {
+      const field = nameFields[0];
+      if (
+        index >=
+        (this.state.evidenceTurns?.[field] ??
+          this.state.updatedTurns[field] ??
+          -1)
+      ) {
+        this.invalidateDraft();
+        this.state.fields[field] = correctedName;
+        this.state.confirmed[field] = false;
+        this.state.updatedTurns[field] = index;
+        this.state.evidenceTurns ??= {};
+        this.state.evidenceTurns[field] = index;
+        this.state.evidencePositions ??= {};
+        this.state.evidencePositions[field] = text
+          .toLowerCase()
+          .replace(/[^\p{L}\p{N}]/gu, "")
+          .lastIndexOf(correctedName.toLowerCase());
+        this.state.correctionPending = (
+          this.state.correctionPending ?? []
+        ).filter((f) => f !== "name");
+        this.persist();
+      }
+    }
+    this.recognizeConfirmation();
     if (
       /\b(?:actually|correction|correct my|change|wrong|incorrect|my name is not|that's not)\b/i.test(
         text,
@@ -171,6 +225,120 @@ export class DemoIntake {
       this.invalidateDraft();
       this.persist();
     }
+  }
+  assistantTurn(text: string, turn = this.latestCommitted, item = "") {
+    if (
+      !text.includes("?") &&
+      !/\b(?:is that right|is that correct|can you confirm)\b/i.test(text)
+    )
+      return;
+    const confirmationQuestion =
+      /\b(?:confirm|correct|right|accurate|did you mean|is your|is it|is that|is this)\b|\bis\b.*\b(?:callback|number|spelled|name)\b/i.test(
+        text,
+      );
+    const fields = confirmationQuestion
+      ? this.matchingReadbackFields(text)
+      : {};
+    const clinic =
+      confirmationQuestion &&
+      !!this.state.clinic &&
+      normalizeClinic(text).includes(normalizeClinic(this.state.clinic.name));
+    const draft = this.preview();
+    const final =
+      confirmationQuestion &&
+      draft &&
+      turn >= this.draft!.turn &&
+      hasSpokenValue(
+        text,
+        draft.content.summary.split(/\s+/).slice(0, 12).join(" "),
+      ) &&
+      (draft.content.confirmationFields as Field[]).every(
+        (f) => fields[f] === this.state.fields[f],
+      );
+    this.readbacks.push({
+      turn,
+      item,
+      text,
+      confirmation: confirmationQuestion,
+      fields,
+      clinic,
+      draftId: final ? draft!.draftId : null,
+    });
+    if (this.readbacks.length > 30) this.readbacks.shift();
+    if (final) this.finalReadback = { draftId: draft!.draftId, turn };
+    this.recognizeConfirmation();
+  }
+  assistantInterrupted(item: string) {
+    const removed = this.readbacks.filter((r) => r.item === item);
+    this.readbacks = this.readbacks.filter((r) => r.item !== item);
+    if (removed.some((r) => r.draftId === this.finalReadback?.draftId))
+      this.finalReadback = null;
+    for (const [field, source] of this.confirmedByReadback)
+      if (source === item) {
+        this.state.confirmed[field] = false;
+        this.confirmedByReadback.delete(field);
+      }
+    this.persist();
+  }
+  private matchingReadbackFields(text: string) {
+    const fields: Partial<Record<Field, string>> = {};
+    for (const field of fieldNames) {
+      const value = this.state.fields[field];
+      if (!value) continue;
+      const matched =
+        field === "callbackNumber"
+          ? !!this.state.callback?.e164 &&
+            callbackDigits(text).includes(this.state.callback.e164.slice(2))
+          : ["workstationNumber", "printerIdentifier"].includes(field)
+            ? capturedIdentifier(text, value)?.toLowerCase() ===
+              value.toLowerCase()
+            : hasSpokenValue(
+                text,
+                value,
+                !["firstName", "lastName", "deviceLocation"].includes(field),
+              );
+      if (matched) fields[field] = value;
+    }
+    return fields;
+  }
+  private recognizeConfirmation() {
+    if (
+      this.latestTurn !== this.latestCommitted ||
+      !explicitYes(this.latestText)
+    )
+      return;
+    const readback = this.readbacks
+      .filter((r) => r.turn < this.latestTurn)
+      .at(-1);
+    if (!readback) return;
+    for (const [field, value] of Object.entries(
+      readback.confirmation ? this.matchingReadbackFields(readback.text) : {},
+    )) {
+      if (
+        !this.state.confirmed[field as Field] &&
+        this.state.fields[field] === value &&
+        readback.turn >= (this.state.updatedTurns[field as Field] ?? -1) &&
+        this.latestTurn > (this.state.updatedTurns[field as Field] ?? -1)
+      ) {
+        this.state.confirmed[field as Field] = true;
+        this.confirmedByReadback.set(field as Field, readback.item);
+      }
+    }
+    if (
+      readback.clinic &&
+      readback.turn >= this.state.clinicTurn &&
+      this.state.clinic &&
+      normalizeClinic(readback.text).includes(
+        normalizeClinic(this.state.clinic.name),
+      ) &&
+      this.latestTurn > this.state.clinicTurn
+    ) {
+      this.state.clinicConfirmed = true;
+      this.store.db
+        .prepare("UPDATE sessions SET clinic_name=? WHERE id=?")
+        .run(this.state.clinic!.name, this.sessionId);
+    }
+    this.persist();
   }
   hasNewCallerTurn() {
     return !!this.draft && this.latestTurn > this.draft.turn;
@@ -203,6 +371,7 @@ export class DemoIntake {
       .get(this.sessionId);
   }
   private invalidateDraft() {
+    this.finalReadback = null;
     if (this.draft) {
       this.store.db
         .prepare(
@@ -215,18 +384,65 @@ export class DemoIntake {
   private clarification(field: string, question: string) {
     return { status: "clarification_required", field, question };
   }
+  private supportingValue(field: Field, value: string) {
+    const floor =
+      this.state.evidenceTurns?.[field] ?? this.state.updatedTurns[field] ?? -1;
+    for (const evidence of [...this.evidence].reverse()) {
+      if (evidence.index < floor) continue;
+      let captured: string | null = null;
+      if (field === "callbackNumber") {
+        if (
+          callbackDigits(value).length >= 7 &&
+          callbackDigits(evidence.text).includes(callbackDigits(value))
+        )
+          captured = value;
+      } else if (["workstationNumber", "printerIdentifier"].includes(field)) {
+        captured = capturedIdentifier(evidence.text, value);
+      } else if (
+        hasSpokenValue(
+          evidence.text,
+          value,
+          !["firstName", "lastName", "deviceLocation"].includes(field),
+        )
+      )
+        captured = value;
+      if (!captured) continue;
+      const compact = (v: string) =>
+        field === "callbackNumber"
+          ? callbackDigits(v)
+          : v.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+      const position = compact(evidence.text).lastIndexOf(compact(captured));
+      if (
+        captured !== this.state.fields[field] &&
+        evidence.index === floor &&
+        position <= (this.state.evidencePositions?.[field] ?? -1)
+      )
+        continue;
+      return { value: captured, turn: evidence.index, position };
+    }
+    return null;
+  }
   async execute(name: string, raw: unknown): Promise<unknown> {
     if (!Object.hasOwn(schemas, name)) throw new Error("TOOL_NOT_ALLOWED");
     const args: any = schemas[name as keyof typeof schemas].parse(raw);
     switch (name) {
       case "match_clinic": {
         if (this.immutable()) return { status: "submission_locked" };
+        if (
+          this.state.clinicConfirmed &&
+          this.state.clinic &&
+          selectClinic(args.name, [this.state.clinic]) &&
+          !(this.state.correctionPending ?? []).includes("clinic")
+        )
+          return { status: "confirmed" };
         if (args.confirm) {
           if (
             !this.state.clinic ||
             normalizeClinic(args.name) !==
               normalizeClinic(this.state.clinic.name) ||
-            !this.yesAfter(this.state.clinicTurn)
+            !this.yesAfter(this.state.clinicTurn) ||
+            !this.readbacks.filter((r) => r.turn < this.latestTurn).at(-1)
+              ?.clinic
           )
             return this.clarification(
               "clinic",
@@ -248,7 +464,7 @@ export class DemoIntake {
         }
         if (
           !this.evidence.some((t) =>
-            normalizeClinic(t).includes(normalizeClinic(args.name)),
+            normalizeClinic(t.text).includes(normalizeClinic(args.name)),
           )
         )
           return this.clarification("clinic", "What is the clinic name?");
@@ -303,33 +519,41 @@ export class DemoIntake {
             instruction:
               "The recorded submission cannot be changed or retried. Offer human review.",
           };
-        const problems: { field: string; question: string }[] = [];
+        const problems: {
+          field: string;
+          question: string;
+          repair?: boolean;
+        }[] = [];
         for (const [field, rawValue] of Object.entries(
           args.fields as Record<string, string>,
         )) {
-          const value = this.sanitize(rawValue);
+          let value = this.sanitize(rawValue);
           if (this.state.fields[field] === value) continue;
+          if (
+            field === "callbackNumber" &&
+            this.state.callback?.e164 &&
+            validateCallback(value).e164 === this.state.callback.e164
+          )
+            continue;
           const guarded = fieldNames.includes(field as Field);
+          let sourceTurn = this.latestCommitted;
+          let sourcePosition = -1;
           if (guarded && value) {
-            const evidence = this.latestText;
-            const observed =
-              field === "callbackNumber"
-                ? callbackDigits(evidence).includes(callbackDigits(value)) &&
-                  callbackDigits(value).length >= 7
-                : hasSpokenValue(
-                    evidence,
-                    value,
-                    !["firstName", "lastName", "deviceLocation"].includes(
-                      field,
-                    ),
-                  );
-            if (!observed) {
+            const supported = this.supportingValue(field as Field, value);
+            if (!supported) {
               problems.push({
                 field,
-                question: `Please repeat or spell the ${field}.`,
+                repair: !!this.state.fields[field],
+                question: this.state.fields[field]
+                  ? `Use the captured ${field}: ${this.state.fields[field]}. Do not substitute another value or repeat a question already answered clearly.`
+                  : `Please repeat or spell the ${field}.`,
               });
               continue;
             }
+            value = supported.value;
+            sourceTurn = supported.turn;
+            sourcePosition = supported.position;
+            if (this.state.fields[field] === value) continue;
           }
           this.invalidateDraft();
           this.state.fields[field] = value;
@@ -352,7 +576,12 @@ export class DemoIntake {
           ).filter((f) => f !== group && f !== "detail");
           if (guarded) {
             this.state.confirmed[field as Field] = false;
-            this.state.updatedTurns[field as Field] = this.latestCommitted;
+            this.state.updatedTurns[field as Field] = sourceTurn;
+            this.state.evidenceTurns ??= {};
+            this.state.evidenceTurns[field as Field] = sourceTurn;
+            this.state.evidencePositions ??= {};
+            this.state.evidencePositions[field as Field] = sourcePosition;
+            this.confirmedByReadback.delete(field as Field);
             this.state.unavailable = this.state.unavailable.filter(
               (f) => f !== field,
             );
@@ -388,6 +617,7 @@ export class DemoIntake {
           this.state.confirmed[field as Field] = false;
           if (field === "callbackNumber") this.state.callback = null;
         }
+        this.recognizeConfirmation();
         this.persist();
         this.event(
           "intake.updated",
@@ -395,13 +625,22 @@ export class DemoIntake {
         );
         return {
           ...this.view(),
+          instruction:
+            "Do not narrate these internal results. Keep captured facts; ask only the next unknown detail. Use the final summary to confirm names and devices together.",
           ...(problems.length
-            ? { status: "clarification_required", ...problems[0] }
+            ? problems[0].repair
+              ? {
+                  status: "retry_update",
+                  field: problems[0].field,
+                  instruction: problems[0].question,
+                }
+              : { status: "clarification_required", ...problems[0] }
             : { status: "saved" }),
         };
       }
       case "confirm_intake": {
         for (const field of args.fields as Field[]) {
+          if (this.state.confirmed[field]) continue;
           if (
             !this.state.fields[field] ||
             (field === "callbackNumber" && !this.state.callback?.e164)
@@ -413,18 +652,13 @@ export class DemoIntake {
                     "What is your complete callback number?")
                 : `What is your ${field}?`,
             );
-          if (
-            !this.yesAfter(
-              this.state.updatedTurns[field] ?? this.latestCommitted,
-            )
-          )
-            return this.clarification(
-              field,
-              `Please confirm the ${field} just read back.`,
-            );
+          return this.clarification(
+            field,
+            field === "callbackNumber"
+              ? `Is ${this.state.fields.callbackNumber} the callback number you want me to use?`
+              : `Is ${this.state.fields[field]} correct?`,
+          );
         }
-        for (const field of args.fields as Field[])
-          this.state.confirmed[field] = true;
         this.persist();
         return { status: "confirmed", ...this.view() };
       }
@@ -463,13 +697,17 @@ export class DemoIntake {
           "callbackNumber",
         ] as Field[]) {
           if (s.unavailable.includes(field)) continue;
-          if (!s.fields[field] || !s.confirmed[field])
+          if (
+            !s.fields[field] ||
+            (field === "callbackNumber" &&
+              (!s.callback?.e164 || !s.confirmed[field]))
+          )
             return this.clarification(
               field,
               field === "callbackNumber"
                 ? (s.callback?.reason ??
-                    "Could you confirm your complete callback number?")
-                : `Could you confirm your ${field === "firstName" ? "first name" : "last name"}?`,
+                    `Is ${s.fields.callbackNumber} the callback number you want me to use?`)
+                : `What is your ${field === "firstName" ? "first name" : "last name"}?`,
             );
         }
         const requiredDevice =
@@ -483,7 +721,7 @@ export class DemoIntake {
         if (
           requiredDevice &&
           !s.unavailable.includes(requiredDevice) &&
-          (!s.fields[requiredDevice] || !s.confirmed[requiredDevice])
+          !s.fields[requiredDevice]
         )
           return this.clarification(
             requiredDevice,
@@ -495,15 +733,12 @@ export class DemoIntake {
           s.fields.issueType === "computer" &&
           s.unavailable.includes("workstationNumber") &&
           !s.unavailable.includes("deviceLocation") &&
-          (!s.fields.deviceLocation || !s.confirmed.deviceLocation)
+          !s.fields.deviceLocation
         )
           return this.clarification(
             "deviceLocation",
             "Which room or desk is the computer in?",
           );
-        for (const field of fieldNames)
-          if (s.fields[field] && !s.confirmed[field])
-            return this.clarification(field, `Could you confirm the ${field}?`);
         if (!s.fields.summary)
           return this.clarification(
             "summary",
@@ -524,6 +759,9 @@ export class DemoIntake {
           unavailableFields: s.unavailable,
           source: "ChinookIT Browser Demo",
           writeMode: this.mode,
+          confirmationFields: fieldNames.filter(
+            (f) => s.fields[f] && !s.confirmed[f],
+          ),
         };
         this.store.db
           .prepare("INSERT INTO ticket_drafts VALUES(?,?,?,?,?,?)")
@@ -566,10 +804,25 @@ export class DemoIntake {
   }
   private prepared() {
     const draft = this.preview()!;
+    const content = draft.content;
+    const fields = content.confirmationFields as Field[];
+    const identity = fields.some((f) => f === "firstName" || f === "lastName")
+      ? `${content.callerName}, `
+      : "";
+    const devices = fields
+      .filter((f) => !["firstName", "lastName", "callbackNumber"].includes(f))
+      .map((f) => content[f]);
     return {
       draftId: draft.draftId,
       status: "confirmation_required",
-      spokenSummary: `${String(draft.content.summary).split(/\s+/).slice(0, 19).join(" ")}. Is that right?`,
+      spokenSummary: `${identity}${String(content.summary)
+        .split(/\s+/)
+        .slice(0, 12)
+        .join(" ")
+        .replace(
+          /[?.!]+$/g,
+          "",
+        )}${devices.length ? ` on ${devices.join(" / ")}` : ""}. Is that right?`,
     };
   }
   private async submit(draftId: string) {
@@ -608,12 +861,25 @@ export class DemoIntake {
         instruction:
           "The test request is recorded. No real ticket was created.",
       };
-    if (!this.yesAfter(this.draft.turn))
+    if (
+      !this.yesAfter(this.draft.turn) ||
+      this.finalReadback?.draftId !== draftId ||
+      !this.yesAfter(this.finalReadback.turn) ||
+      this.readbacks.filter((r) => r.turn < this.latestTurn).at(-1)?.draftId !==
+        draftId
+    )
       return this.clarification(
         "confirmation",
         "Please confirm the request summary after it is read back.",
       );
     const draft = this.preview()!.content;
+    for (const field of draft.confirmationFields as Field[])
+      this.state.confirmed[field] = true;
+    draft.confirmedFields = { ...this.state.confirmed };
+    this.persist();
+    this.store.db
+      .prepare("UPDATE ticket_drafts SET content_json=? WHERE id=?")
+      .run(JSON.stringify(draft), draftId);
     if (this.mode === "preview") {
       this.store.db
         .prepare(
