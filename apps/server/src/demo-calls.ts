@@ -10,6 +10,11 @@ import {
 } from "../../../packages/security/src/index.ts";
 import { SyncroReadClient } from "../../../packages/syncro/src/read-client.ts";
 import {
+  conversationPolicy,
+  semanticTurnDetection,
+} from "../../../packages/conversation/src/policy.ts";
+import { agentSchema } from "../../../packages/shared/src/config.ts";
+import {
   DemoIntake,
   demoToolDefinitions,
 } from "../../../packages/conversation/src/demo-intake.ts";
@@ -91,6 +96,10 @@ type Active = {
   commitOrder: number;
   lastSeen: number;
   startedAt: number;
+  speaking?: boolean;
+  responseId?: string;
+  generation?: number;
+  truncatedItems?: Set<string>;
 };
 export type DemoOptions = {
   store: Store;
@@ -105,6 +114,7 @@ export class DemoCalls {
   private timer: ReturnType<typeof setInterval>;
   private fetcher: typeof fetch;
   private recovery: Promise<void> = Promise.resolve();
+  private lastRetentionRun = 0;
   constructor(private o: DemoOptions) {
     this.fetcher = o.fetcher ?? fetch;
     const stale = o.store.db
@@ -163,6 +173,10 @@ export class DemoCalls {
       "UPDATE ticket_jobs SET state='unknown_outcome',last_error_code='PROCESS_RESTART' WHERE state='submitting' AND draft_id IN (SELECT id FROM ticket_drafts WHERE session_id IN (SELECT session_id FROM browser_calls)); UPDATE ticket_drafts SET status='unknown_outcome' WHERE status='submitting' AND session_id IN (SELECT session_id FROM browser_calls);",
     );
     this.timer = setInterval(() => {
+      if (Date.now() - this.lastRetentionRun > 3600000) {
+        this.o.store.expireConversations();
+        this.lastRetentionRun = Date.now();
+      }
       for (const [id, a] of this.active)
         if (
           (a.socket !== null && Date.now() - a.lastSeen > 30000) ||
@@ -189,6 +203,13 @@ export class DemoCalls {
     return redact(text, secrets).slice(0, 10000);
   }
   private event(id: string, type: string, summary: string, eventId?: string) {
+    if (
+      !this.o.store.agent().diagnosticLogging &&
+      ["tool.requested", "tool.completed", "caller.speech_started"].includes(
+        type,
+      )
+    )
+      return;
     const d = this.o.store.db;
     const sequence = Number(
       d
@@ -233,6 +254,7 @@ export class DemoCalls {
       agentName: this.o.store.agent().name,
       maxDurationSeconds: 300,
       defaultWriteMode: "preview",
+      ticketCreationEnabled: this.o.store.agent().ticketCreationEnabled,
     };
   }
   async start(owner: string, raw: unknown) {
@@ -250,6 +272,11 @@ export class DemoCalls {
       reject("DEMO_CAPACITY_REACHED", 429);
     if (input.writeMode === "live_test" && !input.testCustomerId)
       reject("REAL_TEST_REQUIRES_CUSTOMER_ID");
+    if (
+      input.writeMode === "live_test" &&
+      !this.o.store.agent().ticketCreationEnabled
+    )
+      reject("REAL_TICKET_CREATION_DISABLED");
     const d = this.o.store.db,
       id = randomUUID(),
       date = new Date().toISOString();
@@ -329,12 +356,10 @@ export class DemoCalls {
       const modeInstruction =
         input.writeMode === "preview"
           ? "Ticket submission is a PREVIEW ONLY. Never say a Syncro ticket was created or invent a ticket number."
-          : "Real TEST ticket creation is explicitly enabled for customer ID " +
-            input.testCustomerId +
-            ". Only that customer can be used. Never claim success until submit_ticket returns created.";
+          : "Real TEST ticket creation is explicitly enabled for one server-selected organization. Never claim success until create_ticket returns success=true.";
       const instructions =
         agent.prompt +
-        `\nYou are in a browser demo call. ${modeInstruction} Use find_clinic and confirm_clinic before other tools. Read the prepared spokenSummary and ask for confirmation, then wait for a new caller answer before submit_ticket. Transfers are simulated; never claim a technician is connected. Limit questions to ${agent.maxQuestions} unless the caller volunteers more. Ticket and clinic tools are controlled by the backend.`;
+        `\nThe following mandatory policy takes precedence over any conflicting custom instructions:\n${conversationPolicy}\nYou are in a browser demo call. ${modeInstruction} Match and confirm the clinic with match_clinic. Save and confirm caller fields before prepare_ticket. Wait for a new caller answer before create_ticket. Transfers are unavailable; never claim a technician is connected. Aim for ${agent.maxQuestions} intake questions, but always resolve incomplete or ambiguous required facts. Never expose internal identifiers.`;
       form.set(
         "session",
         JSON.stringify({
@@ -345,11 +370,7 @@ export class DemoCalls {
           audio: {
             input: {
               transcription: { model: "gpt-4o-transcribe", language: "en" },
-              turn_detection: {
-                type: "server_vad",
-                create_response: false,
-                interrupt_response: true,
-              },
+              turn_detection: semanticTurnDetection(agent, false),
             },
             output: { voice: config.voice },
           },
@@ -450,11 +471,13 @@ export class DemoCalls {
     const row = this.o.store.db
       .prepare("SELECT prompt_version_id FROM sessions WHERE id=?")
       .get(id)!;
-    const agent = JSON.parse(
-      String(
-        this.o.store.db
-          .prepare("SELECT content_json FROM prompt_versions WHERE id=?")
-          .get(String(row.prompt_version_id))!.content_json,
+    const agent = agentSchema.parse(
+      JSON.parse(
+        String(
+          this.o.store.db
+            .prepare("SELECT content_json FROM prompt_versions WHERE id=?")
+            .get(String(row.prompt_version_id))!.content_json,
+        ),
       ),
     );
     a.socket!.send(
@@ -464,11 +487,7 @@ export class DemoCalls {
           type: "realtime",
           audio: {
             input: {
-              turn_detection: {
-                type: "server_vad",
-                create_response: true,
-                interrupt_response: true,
-              },
+              turn_detection: semanticTurnDetection(agent),
             },
           },
         },
@@ -478,7 +497,7 @@ export class DemoCalls {
       JSON.stringify({
         type: "response.create",
         response: {
-          instructions: `Say this greeting, then wait for the caller: ${agent.greeting}`,
+          instructions: `This is the ONLY introduction in this call. Say this greeting once, then wait for the caller: ${agent.greeting}`,
           tool_choice: "none",
         },
       }),
@@ -551,6 +570,43 @@ export class DemoCalls {
       return;
     }
     const type = e.type;
+    if (type === "response.created") {
+      a.responseId = e.response?.id;
+      return;
+    }
+    if (type === "input_audio_buffer.speech_started") {
+      a.speaking = true;
+      a.generation = (a.generation ?? 0) + 1;
+      this.event(
+        id,
+        "caller.speech_started",
+        "Caller began speaking; pending speech continuation suppressed",
+        e.event_id,
+      );
+      // WebRTC owns playback, cancellation and truncation. Do not estimate timestamps or send duplicate cancels.
+      return;
+    }
+    if (type === "input_audio_buffer.speech_stopped") {
+      a.speaking = false;
+      return;
+    }
+    if (
+      type === "output_audio_buffer.cleared" ||
+      type === "conversation.item.truncated"
+    ) {
+      this.event(
+        id,
+        "audio.interrupted",
+        "Provider cleared unplayed WebRTC audio and truncated conversation",
+        e.event_id,
+      );
+      if (e.item_id) {
+        a.truncatedItems ??= new Set();
+        a.truncatedItems.add(String(e.item_id));
+        this.markInterrupted(id, String(e.item_id));
+      }
+      return;
+    }
     if (
       type === "input_audio_buffer.committed" &&
       typeof e.item_id === "string"
@@ -597,16 +653,22 @@ export class DemoCalls {
         return;
       }
       const interrupted =
-        !user && a.responseStatus.get(e.response_id) === "cancelled";
+        !user &&
+        (a.responseStatus.get(e.response_id) === "cancelled" ||
+          a.truncatedItems?.has(item));
       d.prepare("INSERT INTO conversation_turns VALUES(?,?,?,?,?,?,?)").run(
         turnId,
         id,
         turn,
         user ? "caller" : "assistant",
-        text,
+        interrupted ? "[Interrupted audio; heard text unavailable]" : text,
         interrupted ? 1 : 0,
         "available",
       );
+      if (!user)
+        this.o.store.db
+          .prepare("INSERT OR REPLACE INTO assistant_items VALUES(?,?,?,?)")
+          .run(item, id, e.response_id ?? "", turnId);
       d.prepare(
         "UPDATE sessions SET transcript_status='available' WHERE id=?",
       ).run(id);
@@ -614,7 +676,7 @@ export class DemoCalls {
       this.event(
         id,
         user ? "transcript.user.final" : "transcript.assistant.final",
-        text,
+        interrupted ? "[Interrupted audio; heard text unavailable]" : text,
         e.event_id,
       );
       return;
@@ -634,29 +696,45 @@ export class DemoCalls {
         !a.completedCalls.has(e.call_id) &&
         a.pending.length < 5
       )
-        a.pending.push(e);
+        a.pending.push({ ...e, generation: a.generation ?? 0 });
       return;
     }
     if (type === "response.done") {
       const response = e.response ?? {};
+      if (a.responseId === response.id) a.responseId = undefined;
       a.responseStatus.set(response.id, response.status);
       if (a.responseStatus.size > 300)
         a.responseStatus.delete(a.responseStatus.keys().next().value!);
-      if (response.status === "cancelled")
+      if (response.status === "cancelled") {
+        for (const item of this.o.store.db
+          .prepare(
+            "SELECT item_id FROM assistant_items WHERE session_id=? AND response_id=?",
+          )
+          .all(id, response.id))
+          this.markInterrupted(id, String(item.item_id));
         this.event(
           id,
           "response.interrupted",
           "Assistant response was interrupted",
           e.event_id,
         );
-      const calls = a.pending.splice(0);
+      }
+      const calls = a.pending.filter(
+        (call) => !call.response_id || call.response_id === response.id,
+      );
+      a.pending = a.pending.filter(
+        (call) => call.response_id && call.response_id !== response.id,
+      );
+      if (response.status === "cancelled") return;
       if (!calls.length) return;
+      const continuationGeneration = a.generation ?? 0;
       a.chain = a.chain
         .then(async () => {
           for (const call of calls) {
             if (a.completedCalls.has(call.call_id) || !this.active.has(id))
               continue;
             a.completedCalls.add(call.call_id);
+            if (call.generation !== (a.generation ?? 0)) continue;
             if (a.completedCalls.size > 40) {
               await this.end(a.owner, id, "tool_limit");
               return;
@@ -668,10 +746,17 @@ export class DemoCalls {
             );
             let result: unknown;
             try {
-              if (call.name === "submit_ticket") {
+              if (
+                [
+                  "create_ticket",
+                  "confirm_intake",
+                  "match_clinic",
+                  "update_intake",
+                ].includes(call.name)
+              ) {
                 const deadline = Date.now() + 3000;
                 while (
-                  !a.intake.hasNewCallerTurn() &&
+                  !a.intake.transcriptCurrent() &&
                   Date.now() < deadline &&
                   this.active.has(id)
                 )
@@ -692,10 +777,18 @@ export class DemoCalls {
                 err instanceof z.ZodError
                   ? "INVALID_TOOL_ARGUMENTS"
                   : (err as Error).message;
-              result = {
-                outcome: "failed",
-                message: /^[A-Z_]+$/.test(code) ? code : "TOOL_FAILED",
-              };
+              result =
+                code === "INVALID_TOOL_ARGUMENTS"
+                  ? {
+                      status: "clarification_required",
+                      instruction:
+                        "Use only the allowed tool fields. Ask one question to clarify missing caller information.",
+                    }
+                  : {
+                      outcome: "failed",
+                      instruction:
+                        "I'm having trouble processing your request. Offer human support; do not reveal internal errors or ask unrelated intake questions.",
+                    };
               this.event(
                 id,
                 "tool.failed",
@@ -716,7 +809,12 @@ export class DemoCalls {
               }),
             );
           }
-          if (this.active.has(id))
+          if (
+            this.active.has(id) &&
+            !a.speaking &&
+            !a.responseId &&
+            continuationGeneration === (a.generation ?? 0)
+          )
             a.socket?.send(JSON.stringify({ type: "response.create" }));
         })
         .catch(() => {
@@ -731,6 +829,28 @@ export class DemoCalls {
         "Realtime reported an error; raw provider payload discarded",
         e.event_id,
       );
+  }
+  private markInterrupted(id: string, itemId: string) {
+    const item = this.o.store.db
+      .prepare(
+        "SELECT turn_id FROM assistant_items WHERE item_id=? AND session_id=?",
+      )
+      .get(itemId, id);
+    if (!item) return;
+    const turn = this.o.store.db
+      .prepare("SELECT text_redacted FROM conversation_turns WHERE id=?")
+      .get(String(item.turn_id));
+    if (!turn) return;
+    this.o.store.db
+      .prepare(
+        "UPDATE conversation_turns SET text_redacted='[Interrupted audio; heard text unavailable]',is_interrupted=1 WHERE id=?",
+      )
+      .run(String(item.turn_id));
+    this.o.store.db
+      .prepare(
+        "UPDATE call_events SET public_summary='[Interrupted audio; heard text unavailable]' WHERE session_id=? AND event_type='transcript.assistant.final' AND public_summary=?",
+      )
+      .run(id, turn.text_redacted);
   }
   async end(owner: string, id: string, reason = "ended") {
     this.owned(owner, id);

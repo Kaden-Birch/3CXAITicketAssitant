@@ -134,20 +134,41 @@ async function draft(f: Awaited<ReturnType<typeof fixture>>, live = false) {
   });
   f.manager.activate(f.owner, started.id);
   caller(f.socket, "Demo Clinic, printer scan failure");
-  await tool(f.socket, "find_clinic", { name: "Demo Clinic" });
-  await tool(f.socket, "confirm_clinic", {
-    clinicId: "42",
-    callerConfirmed: true,
+  const match = await tool(f.socket, "match_clinic", { name: "Demo Clinic" });
+  assert.deepEqual(match, {
+    status: "confirmation_required",
+    suggested_clinic_name: "Demo Clinic",
   });
-  await tool(f.socket, "find_contact", { clinicId: "42", name: "Demo" });
-  const prepared = await tool(f.socket, "prepare_ticket", {
-    clinicId: "42",
-    contactId: "9",
-    callerName: "Demo Caller",
-    callbackNumber: "555-0100",
-    summary: "Printer scan failure",
-    details: "password is test-secret. Printing works.",
+  caller(f.socket, "Yes, that's the clinic");
+  await tool(f.socket, "match_clinic", { name: "Demo Clinic", confirm: true });
+  caller(
+    f.socket,
+    "My first name is Demo and last name is Caller, callback 403-317-1360, printer P016, workstation W015",
+  );
+  await tool(f.socket, "update_intake", {
+    fields: {
+      firstName: "Demo",
+      lastName: "Caller",
+      callbackNumber: "403-317-1360",
+      printerIdentifier: "P016",
+      workstationNumber: "W015",
+      issueType: "printer",
+      summary: "Printer scan failure",
+      details: "password is test-secret. Printing works.",
+    },
   });
+  caller(f.socket, "Yes, those details are correct");
+  await tool(f.socket, "confirm_intake", {
+    fields: [
+      "firstName",
+      "lastName",
+      "callbackNumber",
+      "printerIdentifier",
+      "workstationNumber",
+    ],
+  });
+  const prepared = await tool(f.socket, "prepare_ticket", {});
+  assert.equal(prepared.status, "confirmation_required");
   return { started, prepared };
 }
 test("browser call snapshots hide keys, capture redacted final turns and deduplicate transcripts", async (t) => {
@@ -185,18 +206,16 @@ test("preview is default, requires a new spoken confirmation and never POSTs to 
   });
   const { started, prepared } = await draft(f);
   assert.equal(
-    prepared.content.details,
+    f.manager.snapshot(f.owner, started.id).draft!.content.details,
     "password: [REDACTED] Printing works.",
   );
-  const first = await tool(f.socket, "submit_ticket", {
+  const first = await tool(f.socket, "create_ticket", {
     draftId: prepared.draftId,
-    callerConfirmed: true,
   });
-  assert.equal(first.outcome, "failed");
+  assert.equal(first.status, "clarification_required");
   caller(f.socket, "Yes, that is accurate");
-  const result = await tool(f.socket, "submit_ticket", {
+  const result = await tool(f.socket, "create_ticket", {
     draftId: prepared.draftId,
-    callerConfirmed: true,
   });
   assert.equal(result.outcome, "previewed");
   assert.equal(
@@ -219,7 +238,8 @@ test("live test requires customer allowlist and creates one correctly labelled c
     () => f.manager.start(f.owner, { sdp: offer, writeMode: "live_test" }),
     /REAL_TEST_REQUIRES_CUSTOMER_ID/,
   );
-  const { started, prepared } = await draft(f, true);
+  const { started, prepared: originalPrepared } = await draft(f, true);
+  let prepared = originalPrepared;
   const wrong = await tool(f.socket, "prepare_ticket", {
     clinicId: "88",
     callerName: "Demo",
@@ -227,36 +247,45 @@ test("live test requires customer allowlist and creates one correctly labelled c
     summary: "Bad",
     details: "Bad",
   });
-  assert.equal(wrong.outcome, "failed");
+  assert.equal(wrong.status, "clarification_required");
   caller(f.socket, "Yes but change the callback");
   assert.equal(
     (
-      await tool(f.socket, "submit_ticket", {
+      await tool(f.socket, "create_ticket", {
         draftId: prepared.draftId,
-        callerConfirmed: true,
       })
-    ).outcome,
-    "failed",
+    ).status,
+    "clarification_required",
   );
+  caller(f.socket, "Change callback to 403-317-2360");
+  await tool(f.socket, "update_intake", {
+    fields: { callbackNumber: "403-317-2360" },
+  });
   caller(f.socket, "Yes, that is correct");
-  const result = await tool(f.socket, "submit_ticket", {
+  await tool(f.socket, "confirm_intake", { fields: ["callbackNumber"] });
+  prepared = await tool(f.socket, "prepare_ticket", {});
+  caller(f.socket, "Yes, that is correct");
+  const result = await tool(f.socket, "create_ticket", {
     draftId: prepared.draftId,
-    callerConfirmed: true,
   });
   assert.equal(result.outcome, "created");
-  assert.equal(result.ticketNumber, "1234");
-  const again = await tool(f.socket, "submit_ticket", {
+  assert.equal(result.ticket_number, "1234");
+  const again = await tool(f.socket, "create_ticket", {
     draftId: prepared.draftId,
-    callerConfirmed: true,
   });
-  assert.equal(again.ticketNumber, "1234");
+  assert.equal(again.ticket_number, "1234");
   const writes = f.requests.filter(
     (r) => r.method === "POST" && r.url.endsWith("/tickets"),
   );
   assert.equal(writes.length, 1);
   const body = JSON.parse(writes[0].body);
   assert.equal(body.customer_id, 42);
-  assert.equal(body.contact_id, 9);
+  assert.equal(body.contact_id, undefined);
+  assert.match(
+    body.comments_attributes[0].body,
+    /Callback \(authoritative\): \+14033172360/,
+  );
+  assert.match(body.comments_attributes[0].body, /Workstation: W015/);
   assert.match(body.subject, /^\[BROWSER TEST\]/);
   assert.equal(body.comments_attributes[0].do_not_email, true);
   assert.ok(!body.comments_attributes[0].body.includes("test-secret"));
@@ -274,17 +303,15 @@ for (const mode of ["timeout", "malformed", "rejected"])
     });
     const { prepared } = await draft(f, true);
     caller(f.socket, "Yes, confirmed");
-    const result = await tool(f.socket, "submit_ticket", {
+    const result = await tool(f.socket, "create_ticket", {
       draftId: prepared.draftId,
-      callerConfirmed: true,
     });
     assert.equal(
       result.outcome,
       mode === "rejected" ? "failed" : "unknown_outcome",
     );
-    const duplicate = await tool(f.socket, "submit_ticket", {
+    const duplicate = await tool(f.socket, "create_ticket", {
       draftId: prepared.draftId,
-      callerConfirmed: true,
     });
     assert.equal(duplicate.outcome, result.outcome);
     assert.equal(
@@ -296,7 +323,94 @@ for (const mode of ["timeout", "malformed", "rejected"])
     assert.ok(!JSON.stringify(result).includes("synthetic-secret-error"));
   });
 
-test("a delayed earlier yes cannot confirm a later draft; corrections create a fresh draft", async (t) => {
+test("a delayed earlier yes cannot confirm a later draft; corrections preserve facts and require fresh confirmation", async (t) => {
+  const f = await fixture();
+  t.after(async () => {
+    await f.manager.close();
+    f.store.close();
+  });
+  const { started, prepared } = await draft(f);
+  const earlier = randomUUID();
+  f.socket.emit({ type: "input_audio_buffer.committed", item_id: earlier });
+  caller(f.socket, "Change callback to 403-317-2360");
+  await tool(f.socket, "update_intake", {
+    fields: { callbackNumber: "403-317-2360" },
+  });
+  let response = await tool(f.socket, "prepare_ticket", {});
+  assert.equal(response.field, "callbackNumber");
+  f.socket.emit({
+    type: "conversation.item.input_audio_transcription.completed",
+    item_id: earlier,
+    transcript: "Yes",
+  });
+  response = await tool(f.socket, "confirm_intake", {
+    fields: ["callbackNumber"],
+  });
+  assert.equal(response.status, "clarification_required");
+  caller(f.socket, "Yes, that's the corrected number");
+  await tool(f.socket, "confirm_intake", { fields: ["callbackNumber"] });
+  const revised = await tool(f.socket, "prepare_ticket", {});
+  assert.notEqual(revised.draftId, prepared.draftId);
+  const content = f.manager.snapshot(f.owner, started.id).draft!.content;
+  assert.equal(content.callbackNumber, "+14033172360");
+  assert.equal(content.callbackOriginal, "403-317-2360");
+  assert.equal(content.workstationNumber, "W015");
+  assert.equal(content.lastName, "Caller");
+  assert.equal(content.confirmedFields.lastName, true);
+  caller(f.socket, "Yes, correct");
+  assert.equal(
+    (await tool(f.socket, "create_ticket", { draftId: revised.draftId }))
+      .outcome,
+    "previewed",
+  );
+});
+
+test("existing prompts receive mandatory continuity, one greeting and semantic low VAD", async (t) => {
+  const f = await fixture();
+  t.after(async () => {
+    await f.manager.close();
+    f.store.close();
+  });
+  const agent = f.store.agent();
+  f.store.db
+    .prepare("UPDATE prompt_versions SET content_json=? WHERE id=?")
+    .run(
+      JSON.stringify({ ...agent, prompt: "Custom receptionist instructions" }),
+      f.store.setting("active_prompt"),
+    );
+  const started = await f.manager.start(f.owner, {
+    sdp: offer,
+    writeMode: "live_test",
+    testCustomerId: "42",
+  });
+  const request = f.requests.find((r) => r.url.endsWith("/realtime/calls"))!;
+  const session = JSON.parse(
+    (request.body as FormData).get("session") as string,
+  );
+  assert.ok(session.instructions.includes("Custom receptionist instructions"));
+  assert.ok(session.instructions.includes("Never greet, introduce yourself"));
+  assert.ok(!session.instructions.includes("customer ID 42"));
+  assert.deepEqual(session.audio.input.turn_detection, {
+    type: "semantic_vad",
+    eagerness: "low",
+    create_response: false,
+    interrupt_response: true,
+  });
+  f.manager.activate(f.owner, started.id);
+  f.manager.activate(f.owner, started.id);
+  const greetings = f.socket.sent.filter(
+    (e) => e.type === "response.create" && e.response?.instructions,
+  );
+  assert.equal(greetings.length, 1);
+  const update = f.socket.sent.find((e) => e.type === "session.update");
+  assert.deepEqual(update.session.audio.input.turn_detection, {
+    type: "semantic_vad",
+    eagerness: "low",
+    create_response: true,
+    interrupt_response: true,
+  });
+});
+test("interrupted transcripts are removed from searchable history and cancelled tools never execute", async (t) => {
   const f = await fixture();
   t.after(async () => {
     await f.manager.close();
@@ -304,53 +418,69 @@ test("a delayed earlier yes cannot confirm a later draft; corrections create a f
   });
   const started = await f.manager.start(f.owner, { sdp: offer });
   f.manager.activate(f.owner, started.id);
-  await tool(f.socket, "find_clinic", { name: "Demo Clinic" });
-  await tool(f.socket, "confirm_clinic", {
-    clinicId: "42",
-    callerConfirmed: true,
-  });
-  const earlier = randomUUID();
-  f.socket.emit({ type: "input_audio_buffer.committed", item_id: earlier });
-  const args = {
-    clinicId: "42",
-    callerName: "Demo",
-    callbackNumber: "555-0100",
-    summary: "Printer failed",
-    details: "One user",
-  };
-  const prepared = await tool(f.socket, "prepare_ticket", args);
   f.socket.emit({
-    type: "conversation.item.input_audio_transcription.completed",
-    item_id: earlier,
-    transcript: "Yes",
+    type: "response.output_audio_transcript.done",
+    item_id: "assistant-1",
+    response_id: "response-1",
+    transcript: "Neverheardword continuation",
   });
-  assert.equal(
-    (
-      await tool(f.socket, "submit_ticket", {
-        draftId: prepared.draftId,
-        callerConfirmed: true,
-      })
-    ).outcome,
-    "failed",
-  );
-  caller(f.socket, "Change callback to 555-0200");
-  const revised = await tool(f.socket, "prepare_ticket", {
-    ...args,
-    callbackNumber: "555-0200",
+  f.socket.emit({
+    type: "response.function_call_arguments.done",
+    response_id: "response-1",
+    call_id: "cancelled-tool",
+    name: "match_clinic",
+    arguments: '{"name":"Demo Clinic"}',
   });
-  assert.notEqual(revised.draftId, prepared.draftId);
+  f.socket.emit({ type: "input_audio_buffer.speech_started" });
+  f.socket.emit({
+    type: "response.done",
+    response: { id: "response-1", status: "cancelled" },
+  });
+  f.socket.emit({
+    type: "conversation.item.truncated",
+    item_id: "assistant-2",
+  });
+  f.socket.emit({
+    type: "response.output_audio_transcript.done",
+    item_id: "assistant-2",
+    response_id: "response-2",
+    transcript: "Neverheardword delayed transcript",
+  });
+  await new Promise((r) => setTimeout(r, 30));
+  const snapshot = f.manager.snapshot(f.owner, started.id);
+  assert.equal(snapshot.turns.length, 2);
+  assert.ok(snapshot.turns.every((turn: any) => turn.is_interrupted === 1));
+  assert.ok(!JSON.stringify(snapshot).includes("Neverheardword"));
   assert.equal(
-    f.manager.snapshot(f.owner, started.id).draft!.content.callbackNumber,
-    "555-0200",
+    f.store.db
+      .prepare(
+        "SELECT count(*) n FROM turns_fts WHERE turns_fts MATCH 'Neverheardword'",
+      )
+      .get()!.n,
+    0,
   );
-  caller(f.socket, "Yes, correct");
-  assert.equal(
-    (
-      await tool(f.socket, "submit_ticket", {
-        draftId: revised.draftId,
-        callerConfirmed: true,
-      })
-    ).outcome,
-    "previewed",
+  assert.ok(!f.socket.sent.some((e) => e.item?.call_id === "cancelled-tool"));
+});
+test("real ticket creation kill switch rejects writes before contacting providers", async (t) => {
+  const f = await fixture();
+  t.after(async () => {
+    await f.manager.close();
+    f.store.close();
+  });
+  f.store.db
+    .prepare("UPDATE prompt_versions SET content_json=? WHERE id=?")
+    .run(
+      JSON.stringify({ ...f.store.agent(), ticketCreationEnabled: false }),
+      f.store.setting("active_prompt"),
+    );
+  await assert.rejects(
+    () =>
+      f.manager.start(f.owner, {
+        sdp: offer,
+        writeMode: "live_test",
+        testCustomerId: "42",
+      }),
+    /REAL_TICKET_CREATION_DISABLED/,
   );
+  assert.equal(f.requests.length, 0);
 });

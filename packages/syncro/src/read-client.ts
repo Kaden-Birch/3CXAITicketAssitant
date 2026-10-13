@@ -4,17 +4,6 @@ const customer = z.object({
   business_name: z.string().nullable().optional(),
   fullname: z.string().optional(),
 });
-const contact = z.object({
-  id: z.number().int().positive(),
-  customer_id: z.number().int().positive(),
-  name: z.string(),
-});
-const ticket = z.object({
-  id: z.number().int().positive(),
-  customer_id: z.number().int().positive(),
-  subject: z.string(),
-  status: z.string().optional(),
-});
 let nextSyncroRequestAt = 0;
 export class SyncroReadClient {
   private count = 0;
@@ -114,7 +103,10 @@ export class SyncroReadClient {
         .object({
           ticket: z.object({
             id: z.number().int().positive(),
-            number: z.union([z.number(), z.string()]),
+            number: z.union([
+              z.number().int().positive(),
+              z.string().regex(/^\d+$/),
+            ]),
             customer_id: z.number(),
           }),
         })
@@ -142,40 +134,9 @@ export class SyncroReadClient {
         (c) =>
           !this.allowedCustomerId || String(c.id) === this.allowedCustomerId,
       )
-      .slice(0, 5)
       .map((c) => ({
         id: String(c.id),
-        name: c.business_name || c.fullname || `Customer ${c.id}`,
-      }));
-  }
-  async contacts(clinicId: string, name: string) {
-    const b = await this.get("/contacts", { customer_id: clinicId, page: "1" });
-    return z
-      .object({ contacts: z.array(contact) })
-      .parse(b)
-      .contacts.filter(
-        (c) =>
-          String(c.customer_id) === clinicId &&
-          (!name || c.name.toLowerCase().includes(name.toLowerCase())),
-      )
-      .slice(0, 5)
-      .map((c) => ({ id: String(c.id), displayName: c.name }));
-  }
-  async tickets(clinicId: string) {
-    const b = await this.get("/tickets", { customer_id: clinicId, page: "1" });
-    return z
-      .object({ tickets: z.array(ticket) })
-      .parse(b)
-      .tickets.filter(
-        (t) =>
-          String(t.customer_id) === clinicId &&
-          !["resolved", "closed"].includes((t.status ?? "").toLowerCase()),
-      )
-      .slice(0, 5)
-      .map((t) => ({
-        id: String(t.id),
-        title: t.subject,
-        status: t.status ?? "unknown",
+        name: c.business_name || c.fullname || "",
       }));
   }
 }

@@ -238,6 +238,7 @@ export function DemoCall({ request }: { request: Request }) {
             type="radio"
             name="ticket-mode"
             checked={mode === "live_test"}
+            disabled={config?.ticketCreationEnabled === false}
             onChange={() => setMode("live_test")}
           />
           Create a real test ticket in Syncro
@@ -251,8 +252,15 @@ export function DemoCall({ request }: { request: Request }) {
                 onChange={(e) => setCustomer(e.target.value)}
                 inputMode="numeric"
                 pattern="[0-9]+"
-                placeholder="Customer ID permitted for this test"
+                placeholder="Numeric organization ID, for example 123456"
               />
+              <small>
+                Use the numeric ID from the organization's Syncro URL, not its
+                name or a ticket number.
+              </small>
+              {customer && !/^\d+$/.test(customer) && (
+                <p role="alert">Enter a numeric customer ID.</p>
+              )}
             </label>
             <div className="warning">
               This mode can create one real ticket under the customer ID above
@@ -268,6 +276,7 @@ export function DemoCall({ request }: { request: Request }) {
           disabled={
             active ||
             !config?.ready ||
+            (mode === "live_test" && config?.ticketCreationEnabled === false) ||
             (mode === "live_test" && !/^\d+$/.test(customer))
           }
           onClick={() => void start()}

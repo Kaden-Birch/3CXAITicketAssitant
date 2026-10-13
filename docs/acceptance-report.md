@@ -53,3 +53,12 @@ See `build-checklist.md` for the next gates and `integration-verification.md` fo
 Added a server-controlled WebRTC demo-call screen with saved agent settings, microphone mute/end, redacted history and shared Syncro/intake tools. Preview-only submission is the default. An explicitly selected real-test mode restricts writes to the supplied customer ID, labels the ticket, verifies a new spoken confirmation, and guards duplicate/uncertain submissions.
 
 22 backend tests and two browser workflows cover provider mocks, secret boundaries, transcript deduplication, safe preview, customer scope, one confirmed real write, rejected/malformed/time-out writes, UI mode gates and media cleanup. Live OpenAI audio, real account permissions and actual ticket creation remain unverified; no real call or ticket was made during implementation. The PBX and production hardening acceptance gates remain unchanged.
+
+
+## Conversation accuracy and confidentiality update
+
+The latest browser-call behavior supersedes the earlier broad customer/contact/open-ticket lookup tools. Only one conservatively matched clinic name can be returned; customer IDs stay server-side. Partial intake updates preserve other facts, clear changed confirmations, retain original callback values plus E.164, preserve device identifiers and reject unsupported values. Incomplete first/last names and seven-digit numbers require clarification. New final spoken confirmation still gates submission and unknown writes never retry.
+
+Semantic VAD defaults to Low; mandatory continuity rules apply even with existing custom prompts. Server greeting activation is idempotent. Cancelled/truncated assistant text is withheld from searchable history, and cancelled tool responses do not launch tools. Agent settings now expose VAD, interruption, ticket creation, retention and diagnostic logging. Ended history expires on the configured schedule; uncertain/failed submissions are exempt for review.
+
+Automated provider/media tests cover these boundaries. Natural speech quality, ASR uncertainty, real OpenAI/Syncro account calls and 3CX audio routing are not established by mocks. The production PBX worker remains unimplemented. See [detailed report](conversation-accuracy-report.md).

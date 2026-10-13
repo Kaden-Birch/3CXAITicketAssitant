@@ -819,6 +819,11 @@ function Agent({
               prompt: a.prompt,
               maxQuestions: a.maxQuestions,
               requireConfirmation: true,
+              vadEagerness: a.vadEagerness,
+              interruptionEnabled: a.interruptionEnabled,
+              ticketCreationEnabled: a.ticketCreationEnabled,
+              retentionDays: a.retentionDays,
+              diagnosticLogging: a.diagnosticLogging,
             });
             setA(await api("/settings/agent"));
             notice("Agent version saved for future calls.");
@@ -846,6 +851,69 @@ function Agent({
               }
             />
           </label>
+          <label>
+            Voice detection patience
+            <select
+              value={a.vadEagerness ?? "low"}
+              onChange={(e) => setA({ ...a, vadEagerness: e.target.value })}
+            >
+              <option value="low">Low (Patient)</option>
+              <option value="medium">Medium (Balanced)</option>
+              <option value="high">High (Fast)</option>
+            </select>
+          </label>
+          <label>
+            Allow callers to interrupt
+            <select
+              value={String(a.interruptionEnabled ?? true)}
+              onChange={(e) =>
+                setA({ ...a, interruptionEnabled: e.target.value === "true" })
+              }
+            >
+              <option value="true">Enabled</option>
+              <option value="false">Disabled</option>
+            </select>
+          </label>
+          <label>
+            Real test ticket creation
+            <select
+              value={String(a.ticketCreationEnabled ?? true)}
+              onChange={(e) =>
+                setA({ ...a, ticketCreationEnabled: e.target.value === "true" })
+              }
+            >
+              <option value="true">Allowed when selected for the call</option>
+              <option value="false">Disabled — demo tickets only</option>
+            </select>
+          </label>
+          <label>
+            Conversation retention (days)
+            <input
+              type="number"
+              min={1}
+              max={365}
+              value={a.retentionDays ?? 30}
+              onChange={(e) =>
+                setA({ ...a, retentionDays: Number(e.target.value) })
+              }
+            />
+            <small>
+              Ended calls expire automatically. Failed or uncertain ticket
+              submissions are retained for human review.
+            </small>
+          </label>
+          <label>
+            Diagnostic logging
+            <select
+              value={String(a.diagnosticLogging ?? true)}
+              onChange={(e) =>
+                setA({ ...a, diagnosticLogging: e.target.value === "true" })
+              }
+            >
+              <option value="true">Enabled</option>
+              <option value="false">Essential outcomes only</option>
+            </select>
+          </label>
         </div>
         <label>
           Greeting
@@ -865,7 +933,7 @@ function Agent({
         </label>
         <div className="banner">
           Explicit caller confirmation is required before any ticket write.
-          Recording is off.
+          Recording is off. Continuity and confidentiality rules always apply.
         </div>
         <p className="muted mono">Version {a.versionId}</p>
         <button disabled={busy}>Save new version</button>

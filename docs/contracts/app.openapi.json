@@ -648,6 +648,33 @@
                   "requireConfirmation": {
                     "type": "boolean",
                     "const": true
+                  },
+                  "vadEagerness": {
+                    "default": "low",
+                    "type": "string",
+                    "enum": [
+                      "low",
+                      "medium",
+                      "high"
+                    ]
+                  },
+                  "interruptionEnabled": {
+                    "default": true,
+                    "type": "boolean"
+                  },
+                  "ticketCreationEnabled": {
+                    "default": true,
+                    "type": "boolean"
+                  },
+                  "retentionDays": {
+                    "default": 30,
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 365
+                  },
+                  "diagnosticLogging": {
+                    "default": true,
+                    "type": "boolean"
                   }
                 },
                 "required": [
@@ -655,7 +682,12 @@
                   "greeting",
                   "prompt",
                   "maxQuestions",
-                  "requireConfirmation"
+                  "requireConfirmation",
+                  "vadEagerness",
+                  "interruptionEnabled",
+                  "ticketCreationEnabled",
+                  "retentionDays",
+                  "diagnosticLogging"
                 ],
                 "additionalProperties": false
               }

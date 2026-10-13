@@ -1,7 +1,10 @@
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { defaultAgent } from "../../../packages/shared/src/config.ts";
+import {
+  defaultAgent,
+  agentSchema,
+} from "../../../packages/shared/src/config.ts";
 import { redact } from "../../../packages/security/src/index.ts";
 export class Store {
   readonly db: DatabaseSync;
@@ -49,6 +52,22 @@ export class Store {
         .run(id, JSON.stringify(defaultAgent), new Date().toISOString());
       this.setting("active_prompt", id);
     }
+    if (
+      !this.db.prepare("SELECT version FROM migrations WHERE version=3").get()
+    ) {
+      this.transaction(() => {
+        this.db.exec(
+          readFileSync(
+            new URL(
+              "../../../db/migrations/003-intake-state.sql",
+              import.meta.url,
+            ),
+            "utf8",
+          ),
+        );
+        this.db.exec("INSERT INTO migrations VALUES(3)");
+      });
+    }
   }
   transaction<T>(fn: () => T): T {
     this.db.exec("BEGIN IMMEDIATE");
@@ -79,13 +98,62 @@ export class Store {
       .run(randomUUID(), actor, operation, target, new Date().toISOString());
   }
   agent() {
-    return JSON.parse(
-      String(
-        this.db
-          .prepare("SELECT content_json FROM prompt_versions WHERE id=?")
-          .get(this.setting("active_prompt"))!.content_json,
+    return agentSchema.parse(
+      JSON.parse(
+        String(
+          this.db
+            .prepare("SELECT content_json FROM prompt_versions WHERE id=?")
+            .get(this.setting("active_prompt"))!.content_json,
+        ),
       ),
     );
+  }
+  expireConversations(now = Date.now()) {
+    const cutoff = new Date(
+      now - this.agent().retentionDays * 86400000,
+    ).toISOString();
+    const expired = this.db
+      .prepare(
+        "SELECT id FROM sessions WHERE ended_at IS NOT NULL AND ended_at<? AND id NOT IN (SELECT session_id FROM browser_calls WHERE status IN ('active','connecting')) AND id NOT IN (SELECT session_id FROM ticket_drafts WHERE status IN ('submitting','unknown_outcome','failed'))",
+      )
+      .all(cutoff);
+    if (!expired.length) return 0;
+    this.transaction(() => {
+      for (const row of expired) {
+        const id = String(row.id);
+        this.db
+          .prepare(
+            "DELETE FROM ticket_jobs WHERE draft_id IN (SELECT id FROM ticket_drafts WHERE session_id=?)",
+          )
+          .run(id);
+        this.db
+          .prepare(
+            "DELETE FROM demo_ticket_results WHERE draft_id IN (SELECT id FROM ticket_drafts WHERE session_id=?)",
+          )
+          .run(id);
+        for (const table of [
+          "ticket_drafts",
+          "intake_state",
+          "assistant_items",
+          "conversation_turns",
+          "call_events",
+          "browser_calls",
+        ])
+          this.db.prepare(`DELETE FROM ${table} WHERE session_id=?`).run(id);
+        this.db.prepare("DELETE FROM sessions WHERE id=?").run(id);
+      }
+      const timestamp = new Date(now).toISOString();
+      this.db
+        .prepare("INSERT INTO retention_runs VALUES(?,?,?,?,?)")
+        .run(
+          randomUUID(),
+          timestamp,
+          timestamp,
+          "intake-v1",
+          JSON.stringify({ sessions: expired.length }),
+        );
+    });
+    return expired.length;
   }
   seed() {
     if (this.db.prepare("SELECT id FROM sessions LIMIT 1").get()) return;

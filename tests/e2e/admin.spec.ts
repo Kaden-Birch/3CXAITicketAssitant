@@ -53,6 +53,31 @@ test("first-run setup, masked settings, search, role restrictions and mobile lay
     "synthetic-clinic",
   );
   await page
+    .getByRole("button", { name: "Agent settings", exact: true })
+    .click();
+  await expect(page.getByLabel("Voice detection patience")).toHaveValue("low");
+  await expect(page.getByLabel("Allow callers to interrupt")).toHaveValue(
+    "true",
+  );
+  await page.getByLabel("Voice detection patience").selectOption("medium");
+  await page.getByLabel("Real test ticket creation").selectOption("false");
+  await page.getByRole("button", { name: "Save new version" }).click();
+  await expect(page.getByRole("status")).toContainText("Agent version saved");
+  await page.getByRole("button", { name: "Overview", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Agent settings", exact: true })
+    .click();
+  await expect(page.getByLabel("Voice detection patience")).toHaveValue(
+    "medium",
+  );
+  await expect(page.getByLabel("Real test ticket creation")).toHaveValue(
+    "false",
+  );
+  await page.getByLabel("Voice detection patience").selectOption("low");
+  await page.getByLabel("Real test ticket creation").selectOption("true");
+  await page.getByRole("button", { name: "Save new version" }).click();
+  await expect(page.getByRole("status")).toContainText("Agent version saved");
+  await page
     .getByRole("button", { name: "Conversations", exact: true })
     .click();
   await expect(page.locator("tbody tr")).toHaveCount(20);
