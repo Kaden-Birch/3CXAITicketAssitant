@@ -611,3 +611,67 @@ test("competing first and last name spellings are silently ignored after a clear
   assert.equal(correction.fields.lastName, "Smith");
   assert.equal(correction.fields.firstName, "Maren");
 });
+
+test("callback with extension is captured separately and a qualified yes completes one readback", async (t) => {
+  const f = fixture(t);
+  f.intake.assistantTurn("What's your callback number?");
+  f.caller("It would be 403-555-0142 extension 321.");
+  const saved = await f.execute("update_intake", {
+    fields: { callbackNumber: "403-555-0142 extension 321" },
+  });
+  assert.equal(saved.status, "saved");
+  assert.equal(saved.fields.callbackNumber, "403-555-0142");
+  assert.equal(saved.fields.callbackExtension, "321");
+  assert.equal(saved.callbackValid, true);
+  assert.equal(saved.fields.phoneExtension, undefined);
+  f.intake.assistantTurn("Is 403-555-0142 the callback number?");
+  f.caller("Yeah, but with extension 321.");
+  const confirmed = await f.execute("confirm_intake", {
+    fields: ["callbackNumber"],
+  });
+  assert.equal(confirmed.status, "confirmed");
+  assert.equal(confirmed.question, undefined);
+  assert.equal(confirmed.fields.callbackExtension, "321");
+  // Qualified callback approval must not authorize a ticket or clinic name.
+  assert.equal(confirmed.clinicConfirmed, false);
+  f.intake.assistantTurn("Is 403-555-0142 extension 321 correct?");
+  f.caller("Yeah, but with extension 322.");
+  const changed = await f.execute("confirm_intake", {
+    fields: ["callbackNumber"],
+  });
+  assert.equal(changed.confirmed.callbackNumber, true);
+  assert.equal(changed.fields.callbackExtension, "322");
+});
+
+test("standalone medical device without a PC label retains location and needs no workstation", async (t) => {
+  const f = fixture(t);
+  f.caller("Imaging room two");
+  await f.execute("update_intake", {
+    fields: { deviceLocation: "Imaging Room 2", issueType: "computer" },
+  });
+  f.intake.assistantTurn("What is the workstation label on the PC?");
+  f.caller("It's an ultrasound cart. There's no label and it's not a PC.");
+  const result = await f.execute("update_intake", {
+    fields: { summary: "Medical carts have empty worklists" },
+  });
+  assert.equal(result.fields.issueType, "other");
+  assert.ok(result.unavailable.includes("workstationNumber"));
+  assert.equal(result.fields.deviceLocation, "Imaging Room 2");
+});
+
+test("known impact, no error and unknown troubleshooting remain available as answered topics", async (t) => {
+  const f = fixture(t);
+  f.intake.assistantTurn("Are other machines affected?");
+  f.caller("Both imaging carts and the whole clinic are affected.");
+  f.intake.assistantTurn("Is there an error message?");
+  f.caller("No error message, just an empty worklist.");
+  f.intake.assistantTurn("Has anyone tried troubleshooting?");
+  f.caller("I don't know.");
+  const state = await f.execute("update_intake", {
+    fields: { issueType: "other" },
+  });
+  assert.match(state.answeredTopics.impact, /whole clinic/);
+  assert.match(state.answeredTopics.errors, /No error/);
+  assert.equal(state.answeredTopics.troubleshooting, "I don't know.");
+  assert.match(state.instruction, /Do not repeat any topic/);
+});

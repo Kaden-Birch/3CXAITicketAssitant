@@ -156,3 +156,36 @@ export function normalizeLocation(value: string): string {
     )
     .replace(/[^\p{L}\p{N}]/gu, "");
 }
+
+export function callbackAnswer(
+  text: string,
+): { number: string; extension?: string } | null {
+  const answer = text
+    .trim()
+    .replace(
+      /^(?:it would be|it is|it['’]s|my (?:callback|phone)(?: number)? is|my number is)\s+/i,
+      "",
+    )
+    .replace(/[.!]+$/, "");
+  const match = answer.match(
+    /^(\+?[0-9][0-9 .()\-]*?)(?:[, ]+\b(?:extension|ext\.?|x)\s*([0-9][0-9 -]{0,14}))?$/i,
+  );
+  if (!match) return null;
+  const number = match[1].trim(),
+    extension = match[2]?.replace(/\D/g, "");
+  if (extension && extension.length > 8) return null;
+  return { number, ...(extension ? { extension } : {}) };
+}
+export function extensionAnswer(text: string): string | null {
+  const match = text.match(/\b(?:extension|ext\.?)\s*([0-9][0-9 -]{0,14})/i);
+  const extension = match?.[1].replace(/\D/g, "");
+  return extension && extension.length <= 8 ? extension : null;
+}
+export function callbackAgreement(text: string): boolean {
+  return (
+    explicitYes(text) ||
+    /^(?:yes|yeah|yep)[,.! ]+(?:but\s+)?(?:with|at)\s+(?:extension|ext\.?)\s*[0-9 -]+[.!]?$/i.test(
+      text.trim(),
+    )
+  );
+}

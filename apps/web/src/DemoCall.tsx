@@ -215,6 +215,27 @@ export function DemoCall({ request }: { request: Request }) {
         apply. Use test information; audio is not recorded. Calls end after five
         minutes.
       </div>
+      {phase === "active" && typeof snapshot?.remainingSeconds === "number" && (
+        <p
+          role="status"
+          className={snapshot.remainingSeconds <= 60 ? "warning" : "muted"}
+        >
+          Demo time remaining: {Math.floor(snapshot.remainingSeconds / 60)}:
+          {String(snapshot.remainingSeconds % 60).padStart(2, "0")}
+          {snapshot.remainingSeconds <= 60
+            ? " — This test will end automatically. Collected details remain in call history."
+            : ""}
+        </p>
+      )}
+      {snapshot?.endReason && phase !== "active" && (
+        <p role="status" className="warning">
+          {["duration_limit", "timeout"].includes(snapshot.endReason)
+            ? "The demo reached its five-minute limit. Collected details remain in call history; a draft is not a submitted ticket."
+            : snapshot.endReason === "heartbeat_timeout"
+              ? "The demo ended because the browser stopped checking in."
+              : "The demo call has ended."}
+        </p>
+      )}
       {config && !config.ready && (
         <p role="status">
           {config.enabled
@@ -360,6 +381,9 @@ export function DemoCall({ request }: { request: Request }) {
                 {snapshot.draft.content.clinic} ·{" "}
                 {snapshot.draft.content.callerName} ·{" "}
                 {snapshot.draft.content.callbackNumber}
+                {snapshot.draft.content.callbackExtension
+                  ? ` ext. ${snapshot.draft.content.callbackExtension}`
+                  : ""}
               </p>
               {snapshot.draft.status === "unknown_outcome" && (
                 <div className="warning">

@@ -46,3 +46,14 @@ Voice detection now defaults to Medium (Standard / Balanced). Low/Patient remain
 Expand **Call events and response timing** to inspect provider speech-start/end events, audio-commit-to-transcription time, detected-speech-end-to-response time, response-to-playback time, and tool duration including waits for transcription evidence. These measure server event arrival, not the exact instant the person stopped talking or sound reached the speaker. Turn detection may already have waited before emitting speech_stopped. Diagnostics respect the logging switch; no raw audio is recorded.
 
 Validation: 44 backend tests, including microphone profile selection and timing events, plus two mocked browser tests. Real microphone performance and provider latency still require a live call in the caller's environment.
+
+
+### Callback extensions, repeated questions and demo expiry
+
+Callback extensions use `callbackExtension`, separate from a faulty phone device's `phoneExtension`. A complete callback answer containing an extension is split into its ten-digit base and extension without changing digits. One spoken readback accepts a qualified yes that supplies the extension; this callback approval cannot authorize a clinic or ticket. Extensions are shown in the preview and included in the real ticket body.
+
+Caller answers to impact, errors, onset and troubleshooting questions remain available in structured intake, including “unknown.” A no-label/not-a-PC answer to a workstation question records workstation unavailability and preserves the medical-device location. The mandatory policy directs Ryan to accept standalone medical devices and avoid further PC-label questions. A caller requesting a moment should be allowed to wait without a repeated question.
+
+The five-minute test limit remains in place. The interface displays remaining time, warns in the last minute and explicitly explains expiry. Expiry and a missing browser heartbeat have distinct end reasons. Automatic expiry stops the microphone; captured history remains, and an unsubmitted preview is not treated as a submitted ticket.
+
+Validation: 51 backend tests and two browser workflows, including callback extensions, qualified approval, medical device label unavailability, remembered topics, countdown and expiry cleanup. Live speech performance remains subject to testing in the actual environment.

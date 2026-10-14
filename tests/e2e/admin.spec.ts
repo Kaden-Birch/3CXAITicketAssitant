@@ -152,6 +152,7 @@ test("browser demo uses preview by default, gates real writes and stops the micr
   const id = "12345678-1234-4234-8234-123456789abc";
   const starts: any[] = [];
   let ends = 0;
+  let expired = false;
   await page.addInitScript(() => {
     (window as any).stoppedTracks = 0;
     Object.defineProperty(navigator, "mediaDevices", {
@@ -220,7 +221,9 @@ test("browser demo uses preview by default, gates real writes and stops the micr
     return route.fulfill({
       json: {
         id,
-        status: ends ? "ended" : "active",
+        status: ends || expired ? "ended" : "active",
+        remainingSeconds: ends || expired ? 0 : 59,
+        endReason: expired ? "duration_limit" : ends ? "ended" : "",
         session: { outcome: "no_ticket" },
         turns: [],
         events: [],
@@ -243,11 +246,14 @@ test("browser demo uses preview by default, gates real writes and stops the micr
     page.getByRole("button", { name: "Mute microphone", exact: true }),
   ).toBeEnabled();
   expect(starts[0].writeMode).toBe("preview");
-  await page.getByRole("button", { name: "End call", exact: true }).click();
+  await expect(page.getByText(/Demo time remaining: 0:59/)).toBeVisible();
+  expired = true;
+  await expect(page.getByText(/reached its five-minute limit/)).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Start demo call", exact: true }),
   ).toBeEnabled();
   expect(await page.evaluate(() => (window as any).stoppedTracks)).toBe(1);
+  expired = false;
   await page
     .getByRole("radio", {
       name: "Create a real test ticket in Syncro",

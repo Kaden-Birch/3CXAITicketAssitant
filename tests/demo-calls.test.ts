@@ -676,3 +676,19 @@ test("call diagnostics separate transcription, response and playback delays", as
     assert.ok(!event.public_summary.includes("printer"));
   }
 });
+
+test("demo snapshots expose remaining time and an explicit duration-limit end reason", async (t) => {
+  const f = await fixture();
+  t.after(async () => {
+    await f.manager.close();
+    f.store.close();
+  });
+  const started = await f.manager.start(f.owner, { sdp: offer });
+  const active = f.manager.snapshot(f.owner, started.id);
+  assert.ok(active.remainingSeconds > 0 && active.remainingSeconds <= 300);
+  assert.equal(active.endReason, "");
+  await f.manager.end(f.owner, started.id, "duration_limit");
+  const ended = f.manager.snapshot(f.owner, started.id);
+  assert.equal(ended.remainingSeconds, 0);
+  assert.equal(ended.endReason, "duration_limit");
+});

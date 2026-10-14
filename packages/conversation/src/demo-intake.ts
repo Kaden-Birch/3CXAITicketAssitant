@@ -12,6 +12,9 @@ import {
   spelledName,
   fullNameAnswer,
   normalizeLocation,
+  callbackAnswer,
+  extensionAnswer,
+  callbackAgreement,
 } from "./fields.ts";
 const short = z.string().max(150);
 const fieldSchema = z
@@ -19,6 +22,7 @@ const fieldSchema = z
     firstName: short,
     lastName: short,
     callbackNumber: short,
+    callbackExtension: z.string().regex(/^\d{1,8}$/),
     workstationNumber: short,
     printerIdentifier: short,
     phoneExtension: short,
@@ -33,6 +37,7 @@ const fieldNames = [
   "firstName",
   "lastName",
   "callbackNumber",
+  "callbackExtension",
   "workstationNumber",
   "printerIdentifier",
   "phoneExtension",
@@ -95,6 +100,7 @@ type IntakeState = {
   clinicConfirmed: boolean;
   clinicTurn: number;
   unmatched: boolean;
+  answeredTopics?: Record<string, { answer: string; turn: number }>;
   correctionPending?: string[];
   evidenceTurns?: Partial<Record<Field, number>>;
   evidencePositions?: Partial<Record<Field, number>>;
@@ -169,6 +175,86 @@ export class DemoIntake {
       this.latestText = text;
     }
     const readback = this.readbacks.filter((r) => r.turn < index).at(-1);
+    if (
+      !this.immutable() &&
+      (/\b(?:callback|phone number|telephone number)\b/i.test(
+        readback?.text ?? "",
+      ) ||
+        !!readback?.fields.callbackNumber)
+    ) {
+      const answer = callbackAnswer(text);
+      const extension = answer?.extension ?? extensionAnswer(text);
+      if (
+        answer &&
+        validateCallback(answer.number).e164 &&
+        index >= (this.state.evidenceTurns?.callbackNumber ?? -1)
+      ) {
+        const callback = validateCallback(answer.number);
+        if (callback.e164 !== this.state.callback?.e164) {
+          this.invalidateDraft();
+          this.state.fields.callbackNumber = answer.number;
+          this.state.callback = callback;
+          this.store.db
+            .prepare("UPDATE sessions SET caller_number_masked=? WHERE id=?")
+            .run(`***-***-${callback.e164!.slice(-4)}`, this.sessionId);
+          this.state.confirmed.callbackNumber = false;
+          this.state.updatedTurns.callbackNumber = index;
+          this.state.evidenceTurns ??= {};
+          this.state.evidenceTurns.callbackNumber = index;
+        }
+      }
+      if (
+        extension &&
+        index >= (this.state.evidenceTurns?.callbackExtension ?? -1)
+      ) {
+        this.state.fields.callbackExtension = extension;
+        this.state.evidenceTurns ??= {};
+        this.state.evidenceTurns.callbackExtension = index;
+        this.state.updatedTurns.callbackExtension = index;
+      }
+      this.persist();
+    }
+    if (
+      !this.immutable() &&
+      /\b(?:workstation|label|PC)\b/i.test(readback?.text ?? "") &&
+      /\b(?:no label|no computer|not a PC|not a computer|don.t know|no number)\b/i.test(
+        text,
+      )
+    ) {
+      this.state.unavailable = [
+        ...new Set([...this.state.unavailable, "workstationNumber" as Field]),
+      ];
+      if (/\b(?:not a PC|not a computer|no computer)\b/i.test(text))
+        this.state.fields.issueType = "other";
+      this.persist();
+    }
+    if (
+      !this.immutable() &&
+      readback &&
+      /[\p{L}\p{N}]/u.test(text) &&
+      !/^(?:uh|um|hello|give me (?:a|one) (?:second|moment)|one moment)[.! ]*$/i.test(
+        text.trim(),
+      )
+    ) {
+      const topics = {
+        errors: /\b(?:error message|alert|status message)\b/i,
+        onset: /\b(?:start|started|begin|began|today|earlier)\b/i,
+        impact:
+          /\b(?:affected|affecting|other devices|other machines|multiple users|how many users)\b/i,
+        troubleshooting:
+          /\b(?:troubleshooting|tried|reboot|restart|reconnect)\b/i,
+      };
+      for (const [topic, pattern] of Object.entries(topics)) {
+        if (
+          !pattern.test(readback.text) ||
+          index < (this.state.answeredTopics?.[topic]?.turn ?? -1)
+        )
+          continue;
+        this.state.answeredTopics ??= {};
+        this.state.answeredTopics[topic] = { answer: text, turn: index };
+      }
+      this.persist();
+    }
     const capturedName = /\bfull name\b|\bfirst and last\b/i.test(
       readback?.text ?? "",
     )
@@ -207,7 +293,7 @@ export class DemoIntake {
       : /\b(?:last name|surname)\b/i.test(readback?.text ?? "")
         ? (["lastName"] as Field[])
         : (Object.keys(readback?.fields ?? {}).filter(
-            (f) => f !== "callbackNumber",
+            (f) => f === "firstName" || f === "lastName",
           ) as Field[]);
     const correctedName = /^no\b/i.test(text.trim()) ? spelledName(text) : null;
     if (correctedName && nameFields.length === 1 && !this.immutable()) {
@@ -304,7 +390,11 @@ export class DemoIntake {
     });
     this.readbacks.sort((a, b) => a.turn - b.turn);
     if (this.readbacks.length > 30) this.readbacks.shift();
-    if (/\bfull name\b|\bfirst and last\b/i.test(text)) {
+    if (
+      /\bfull name\b|\bfirst and last\b|\bcallback\b|\bphone number\b/i.test(
+        text,
+      )
+    ) {
       const answer = this.evidence.find((e) => e.index === turn + 1);
       if (answer) this.callerTurn(answer.index, answer.text);
     }
@@ -349,16 +439,18 @@ export class DemoIntake {
   private recognizeConfirmation() {
     if (
       this.latestTurn !== this.latestCommitted ||
-      !explicitYes(this.latestText)
+      !callbackAgreement(this.latestText)
     )
       return;
     const readback = this.readbacks
       .filter((r) => r.turn < this.latestTurn)
       .at(-1);
     if (!readback) return;
+    const callbackOnly = !explicitYes(this.latestText);
     for (const [field, value] of Object.entries(
       readback.confirmation ? this.matchingReadbackFields(readback.text) : {},
     )) {
+      if (callbackOnly && field !== "callbackNumber") continue;
       if (
         !this.state.confirmed[field as Field] &&
         this.state.fields[field] === value &&
@@ -370,6 +462,7 @@ export class DemoIntake {
       }
     }
     if (
+      !callbackOnly &&
       readback.clinic &&
       readback.turn >= this.state.clinicTurn &&
       this.state.clinic &&
@@ -403,6 +496,11 @@ export class DemoIntake {
       fields: this.state.fields,
       confirmed: this.state.confirmed,
       unavailable: this.state.unavailable,
+      answeredTopics: Object.fromEntries(
+        Object.entries(this.state.answeredTopics ?? {}).map(
+          ([topic, value]) => [topic, value.answer],
+        ),
+      ),
       nameStatus:
         this.state.fields.firstName && this.state.fields.lastName
           ? "captured"
@@ -447,7 +545,9 @@ export class DemoIntake {
     for (const evidence of [...this.evidence].reverse()) {
       if (evidence.index < floor) continue;
       let captured: string | null = null;
-      if (field === "callbackNumber") {
+      if (field === "callbackExtension") {
+        if (extensionAnswer(evidence.text) === value) captured = value;
+      } else if (field === "callbackNumber") {
         if (
           callbackDigits(value).length >= 7 &&
           callbackDigits(evidence.text).includes(callbackDigits(value))
@@ -581,6 +681,14 @@ export class DemoIntake {
             instruction:
               "The recorded submission cannot be changed or retried. Offer human review.",
           };
+        const combined =
+          typeof args.fields.callbackNumber === "string"
+            ? callbackAnswer(args.fields.callbackNumber)
+            : null;
+        if (combined?.extension) {
+          args.fields.callbackNumber = combined.number;
+          args.fields.callbackExtension ??= combined.extension;
+        }
         const problems: {
           field: string;
           question: string;
@@ -645,9 +753,11 @@ export class DemoIntake {
                     ? "printer"
                     : field === "phoneExtension"
                       ? "extension"
-                      : field === "deviceLocation"
-                        ? "location"
-                        : "detail";
+                      : field === "callbackExtension"
+                        ? "callbackExtension"
+                        : field === "deviceLocation"
+                          ? "location"
+                          : "detail";
           this.state.correctionPending = (
             this.state.correctionPending ?? []
           ).filter((f) => f !== group && f !== "detail");
@@ -711,7 +821,7 @@ export class DemoIntake {
         return {
           ...this.view(),
           instruction:
-            "Accept the caller name in fields as already captured. There is no spelling mismatch, saved-record comparison or name confirmation needed. Never mention an internal spelling proposal or offer alternate names. Ask only the next unknown detail directly. Do not narrate these internal results. Use the final summary for the issue and device.",
+            "Accept the caller name in fields as already captured. There is no spelling mismatch, saved-record comparison or name confirmation needed. Never mention an internal spelling proposal or offer alternate names. Ask only the next unknown detail directly. Do not repeat any topic present in answeredTopics, including answers of unknown or no error. Do not narrate these internal results. Use the final summary for the issue and device.",
           ...(problems.length
             ? problems[0].repair
               ? {
@@ -856,6 +966,7 @@ export class DemoIntake {
             (f) =>
               f !== "firstName" &&
               f !== "lastName" &&
+              f !== "callbackExtension" &&
               s.fields[f] &&
               !s.confirmed[f],
           ),
@@ -1026,7 +1137,13 @@ export class DemoIntake {
       "One confirmed real test submission started",
     );
     try {
-      const body = `Caller: ${draft.callerName}\nCallback (authoritative): ${draft.callbackNumber}\nOriginally captured: ${draft.callbackOriginal}\nWorkstation: ${draft.workstationNumber ?? "Not provided"}\nPrinter: ${draft.printerIdentifier ?? "Not provided"}\nExtension: ${draft.phoneExtension ?? "Not provided"}\nLocation: ${draft.deviceLocation ?? "Not provided"}\nUnavailable fields: ${draft.unavailableFields.join(", ")}\nIssue: ${draft.summary}\nCaller-reported context (not a diagnosis): ${draft.details ?? ""}\nSource: ChinookIT Browser Demo\nInternal call reference: ${this.sessionId}`;
+      const body = `Caller: ${draft.callerName}\nCallback (authoritative): ${draft.callbackNumber}\nCallback extension: ${draft.callbackExtension ?? "None"}\nOriginally captured: ${draft.callbackOriginal}\nWorkstation: ${draft.workstationNumber ?? "Not provided"}\nPrinter: ${draft.printerIdentifier ?? "Not provided"}\nExtension: ${draft.phoneExtension ?? "Not provided"}\nLocation: ${draft.deviceLocation ?? "Not provided"}\nUnavailable fields: ${draft.unavailableFields.join(", ")}\nCaller answers: ${Object.entries(
+        this.state.answeredTopics ?? {},
+      )
+        .map(([topic, value]) => `${topic}: ${value.answer}`)
+        .join(
+          "; ",
+        )}\nIssue: ${draft.summary}\nCaller-reported context (not a diagnosis): ${draft.details ?? ""}\nSource: ChinookIT Browser Demo\nInternal call reference: ${this.sessionId}`;
       const result = await this.syncro.createTestTicket(
         draft.clinicId,
         undefined,

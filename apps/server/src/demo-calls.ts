@@ -187,7 +187,13 @@ export class DemoCalls {
           (a.socket !== null && Date.now() - a.lastSeen > 30000) ||
           Date.now() - a.startedAt > 300000
         )
-          void this.end(a.owner, id, "timeout");
+          void this.end(
+            a.owner,
+            id,
+            Date.now() - a.startedAt > 300000
+              ? "duration_limit"
+              : "heartbeat_timeout",
+          );
     }, 5000);
     this.timer.unref();
   }
@@ -559,6 +565,21 @@ export class DemoCalls {
     return {
       id,
       status: call.status,
+      remainingSeconds: this.active.has(id)
+        ? Math.max(
+            0,
+            Math.ceil(
+              (this.active.get(id)!.startedAt + 300000 - Date.now()) / 1000,
+            ),
+          )
+        : 0,
+      endReason: String(
+        d
+          .prepare(
+            "SELECT public_summary FROM call_events WHERE session_id=? AND event_type='call.ended' ORDER BY sequence DESC LIMIT 1",
+          )
+          .get(id)?.public_summary ?? "",
+      ).replace("Browser demo ended: ", ""),
       session,
       turns: d
         .prepare(

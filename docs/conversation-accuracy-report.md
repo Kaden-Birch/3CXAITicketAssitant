@@ -84,3 +84,8 @@ Regression checks use fictional caller details and cover callback preservation, 
 ### Caller name spelling follow-up
 
 A captured name and an unsupported model spelling previously produced a retry result. The model could narrate that as a nonexistent saved-record spelling mismatch despite instructions to repair it silently. Known first/last names now retain caller evidence and return normal saved status when the model proposes unsupported or empty values. Results explicitly identify the name as captured and requiring no confirmation. Caller-supported corrections still apply. A regression covers both competing first/last spellings and subsequent caller corrections using fictional names.
+
+
+### Callback extension and abrupt demo ending follow-up
+
+The reported call ended at the existing five-minute duration limit. Added a visible countdown, last-minute warning and duration-limit explanation, separate from browser heartbeat expiry. Callback extensions now have a dedicated field rather than being appended to callback digits or confused with the extension of a faulty phone. Qualified callback agreement can preserve/add an extension without another readback; it cannot approve a final ticket. Structured answers to impact, errors, onset and troubleshooting remain available, including unknown answers. A medical cart with no PC label retains its room location and workstation unavailability. Verified with 51 backend tests and two browser tests; no live voice call or real ticket was initiated.
