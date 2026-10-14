@@ -2,7 +2,7 @@
 
 ## Changes
 
-- Ryan's greeting is a one-time, idempotent server activation. Mandatory runtime instructions supplement all existing saved prompts, including custom prompts; they require continuity, one short question per speaking turn, no repeated introduction, patient spelling/hesitation handling, explicit first/last name collection and authoritative caller corrections. Custom prompts remain editable and old calls retain their original versions.
+- Ryan's greeting is a one-time, idempotent server activation. Mandatory runtime instructions supplement all existing saved prompts, including custom prompts; they require continuity, one short question per speaking turn, no repeated introduction, patient spelling/hesitation handling, first-name collection with an optional volunteered surname and authoritative caller corrections. Custom prompts remain editable and old calls retain their original versions.
 - Model tools are explicitly allowlisted: `match_clinic`, `update_intake`, `confirm_intake`, `prepare_ticket`, `create_ticket`, and unavailable browser support fallback. The middle three tools operate only on this caller's intake data. No contact or existing-ticket reads are available. No customer ID, raw record, address, stored telephone or ticket history is returned to the model or inserted in the generated instructions.
 - `match_clinic` must reference caller-supplied speech. Conservative normalization/edit-distance matching returns at most one similar name, requires a fresh confirmation, rejects near ties and unrelated results, and stops provider matching after five attempts per call. The chosen ID remains in server-only persisted state. Unmatched clinics can produce a local preview; they cannot produce real tickets without a confirmed binding.
 - Persistent structured fields include first name, last name, original callback, validated E.164, workstation number, printer identifier, extension and location. Partial updates preserve all other data. Changed fields lose their confirmation. Captured phone digits and device/name values must have supporting caller transcript evidence. Corrections invalidate unsubmitted drafts; earlier/delayed yes turns cannot confirm newer data. Ambiguous/incomplete fields require clarification. Explicitly unavailable identity/callback information routes real mode to human review.
@@ -26,7 +26,7 @@ Migration `003-intake-state.sql` adds `intake_state` for durable structured fact
 
 ## Verification
 
-Automated tests use synthetic identities, provider responses and browser media. They cover conservative matching/confidentiality, forbidden and prototype tool names, attempted directory retrieval, callback digit count and corrections, device preservation, missing surname, fresh confirmation, transcript ordering, semantic configuration, one greeting activation, cancelled tools, delayed cancellation/truncation, FTS removal, duplicate submission, timeout/malformed/rejected writes, preview/live separation, write kill switch, encrypted credentials, retention and migrations. Browser regressions verify patient settings persist and microphone cleanup still works.
+Automated tests use synthetic identities, provider responses and browser media. They cover conservative matching/confidentiality, forbidden and prototype tool names, attempted directory retrieval, callback digit count and corrections, device preservation, optional surname, fresh confirmation, transcript ordering, semantic configuration, one greeting activation, cancelled tools, delayed cancellation/truncation, FTS removal, duplicate submission, timeout/malformed/rejected writes, preview/live separation, write kill switch, encrypted credentials, retention and migrations. Browser regressions verify patient settings persist and microphone cleanup still works.
 
 Verification passed: `npm run build` (TypeScript and production UI build), `npm run lint`, all 40 backend tests, and both Playwright browser workflows. No live OpenAI call or Syncro write was initiated by the implementation agent.
 
@@ -39,7 +39,7 @@ The production 3CX worker does not yet exist in this application. The official p
 Before production:
 
 1. Refresh the local browser and start in Demo ticket only. Test a hesitant caller, pauses while finding the PC label, and interruptions during Ryan's question. Verify the greeting occurs once and no interrupted phrase is repeated.
-2. Give only a first name, then correct it after another answer. Verify Ryan requests the missing last name, preserves issue/clinic facts and reconfirms only the changed name.
+2. Give only a first name, then correct it after another answer. Verify Ryan accepts the first name without asking for a surname, preserves issue/clinic facts and applies the corrected first name without a confirmation round.
 3. Give seven callback digits, then the area code. Try `403-317-1360`, correct one digit, and verify the UI draft and ticket use the confirmed E.164 plus original capture. Spell ambiguous device characters; verify `W015` stays `W015` and a caller-requested hyphen change is explicit.
 4. Try similar/ambiguous/unrelated clinic names and requests for contact lists, ticket history, addresses or credentials. Expect only one related clinic-name suggestion or spelling/human review, never private data.
 5. Select the real-test mode only for a designated customer, confirm the final summary, and inspect the one `[BROWSER TEST]` ticket with internal comments. A failed/uncertain submission requires manual Syncro reconciliation using the internal call reference; do not repeat the call/write blindly.
@@ -94,3 +94,8 @@ The reported call ended at the existing five-minute duration limit. Added a visi
 ### Clinic number transcription follow-up
 
 Single-digit clinic tokens and their English number-word equivalents now normalize identically. An unsuccessful bounded clinic lookup can try the alternate number representation internally, keeping the original clinic words and conservative matching threshold. Candidates from both searches are deduplicated; ambiguity still blocks a suggestion. Different numeric clinic identifiers cannot match by edit similarity. Tool results supply one direct confirmation question and tell the model to skip matching narration and spelling requests for number transcription differences. Two fictional-clinic regressions cover word/digit equivalence, duplicate ambiguity, different numbers and a single affirmative confirmation.
+
+
+### Attached clinic number and optional surname follow-up
+
+The preceding number-word fix missed digit attachment, such as a clinic token ending in `1` without a preceding space. Canonical matching now separates letter/digit boundaries and bounded lookup variants include attached numbers. Pending confirmation paths now supply the actual suggestion instead of a generic confirmation request. Caller identity requires only firstName; surname is optional for preview and real-test preparation. The spoken name question and runtime instructions reflect that rule. Regressions cover attached number equivalence, named pending confirmations and first-name-only preparation in both modes, plus submission of the preview.

@@ -5,7 +5,7 @@ import { SyncroReadClient } from "../../syncro/src/read-client.ts";
 import {
   normalizeClinic,
   selectClinic,
-  clinicSearchVariant,
+  clinicSearchVariants,
 } from "../../syncro/src/matching.ts";
 import {
   callbackDigits,
@@ -259,11 +259,12 @@ export class DemoIntake {
       }
       this.persist();
     }
-    const capturedName = /\bfull name\b|\bfirst and last\b/i.test(
-      readback?.text ?? "",
-    )
-      ? fullNameAnswer(text)
-      : null;
+    const capturedName =
+      /\bfull name\b|\bfirst and last\b|\bfirst name\b|\byour name\b/i.test(
+        readback?.text ?? "",
+      )
+        ? fullNameAnswer(text)
+        : null;
     if (capturedName && !this.immutable()) {
       for (const [key, value] of Object.entries(capturedName)) {
         const field = key as Field;
@@ -395,7 +396,7 @@ export class DemoIntake {
     this.readbacks.sort((a, b) => a.turn - b.turn);
     if (this.readbacks.length > 30) this.readbacks.shift();
     if (
-      /\bfull name\b|\bfirst and last\b|\bcallback\b|\bphone number\b/i.test(
+      /\bfull name\b|\bfirst and last\b|\bfirst name\b|\byour name\b|\bcallback\b|\bphone number\b/i.test(
         text,
       )
     ) {
@@ -505,10 +506,7 @@ export class DemoIntake {
           ([topic, value]) => [topic, value.answer],
         ),
       ),
-      nameStatus:
-        this.state.fields.firstName && this.state.fields.lastName
-          ? "captured"
-          : "incomplete",
+      nameStatus: this.state.fields.firstName ? "captured" : "incomplete",
       nameConfirmationRequired: false,
       callbackValid: !!this.state.callback?.e164,
       clinicConfirmed: this.state.clinicConfirmed,
@@ -616,7 +614,9 @@ export class DemoIntake {
           )
             return this.clarification(
               "clinic",
-              "Please confirm the suggested clinic name.",
+              this.state.clinic
+                ? `Is ${this.sanitize(this.state.clinic.name)} the correct clinic?`
+                : "Which clinic are you calling from?",
             );
           this.state.clinicConfirmed = true;
           this.state.unmatched = false;
@@ -670,8 +670,8 @@ export class DemoIntake {
         ).filter((f) => f !== "clinic");
         const query = this.sanitize(args.name);
         let candidates = await this.syncro.clinics(query);
-        const variant = clinicSearchVariant(query);
-        if (!selectClinic(query, candidates) && variant !== query) {
+        for (const variant of clinicSearchVariants(query)) {
+          if (selectClinic(query, candidates)) break;
           const extra = await this.syncro.clinics(variant);
           candidates = [
             ...new Map(
@@ -858,6 +858,7 @@ export class DemoIntake {
       }
       case "confirm_intake": {
         for (const field of args.fields as Field[]) {
+          if (field === "lastName") continue;
           if (field !== "callbackNumber" && this.state.fields[field]) continue;
           if (this.state.confirmed[field]) continue;
           if (
@@ -893,7 +894,7 @@ export class DemoIntake {
         const s = this.state;
         if (
           this.mode === "live_test" &&
-          ["firstName", "lastName", "callbackNumber"].some((field) =>
+          ["firstName", "callbackNumber"].some((field) =>
             s.unavailable.includes(field as Field),
           )
         ) {
@@ -915,13 +916,11 @@ export class DemoIntake {
         if (!s.clinicConfirmed && !s.unmatched)
           return this.clarification(
             "clinic",
-            "Could you confirm the clinic name?",
+            s.clinic
+              ? `Is ${this.sanitize(s.clinic.name)} the correct clinic?`
+              : "Which clinic are you calling from?",
           );
-        for (const field of [
-          "firstName",
-          "lastName",
-          "callbackNumber",
-        ] as Field[]) {
+        for (const field of ["firstName", "callbackNumber"] as Field[]) {
           if (s.unavailable.includes(field)) continue;
           if (
             !s.fields[field] ||

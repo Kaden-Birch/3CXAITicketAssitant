@@ -57,3 +57,8 @@ Caller answers to impact, errors, onset and troubleshooting questions remain ava
 The five-minute test limit remains in place. The interface displays remaining time, warns in the last minute and explicitly explains expiry. Expiry and a missing browser heartbeat have distinct end reasons. Automatic expiry stops the microphone; captured history remains, and an unsubmitted preview is not treated as a submitted ticket.
 
 Validation: 51 backend tests and two browser workflows, including callback extensions, qualified approval, medical device label unavailability, remembered topics, countdown and expiry cleanup. Live speech performance remains subject to testing in the actual environment.
+
+
+### First-name-only intake and attached clinic numbers
+
+A first name alone now satisfies caller identity in demo previews and real-test preparation. Surnames are optional and retained only when volunteered. The name question asks for the first name once. Clinic matching treats attached and spaced numbers as equivalent, tries bounded spaced/word/attached query variants internally when needed, and every pending confirmation includes the actual suggested clinic name. No generic “confirm the suggested name” question is returned. Existing historical prompt versions remain unchanged.

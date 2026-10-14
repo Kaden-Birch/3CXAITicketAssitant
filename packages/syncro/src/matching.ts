@@ -15,6 +15,8 @@ export function normalizeClinic(value: string): string {
   return value
     .normalize("NFKC")
     .toLowerCase()
+    .replace(/([\p{L}])(\d)/gu, "$1 $2")
+    .replace(/(\d)([\p{L}])/gu, "$1 $2")
     .replace(
       /\b(zero|one|two|three|four|five|six|seven|eight|nine)\b/g,
       (word) => String(numberWords.indexOf(word)),
@@ -82,5 +84,14 @@ export function clinicSearchVariant(value: string): string {
   return value.replace(
     /\b(zero|one|two|three|four|five|six|seven|eight|nine)\b/gi,
     (word) => String(numberWords.indexOf(word.toLowerCase())),
+  );
+}
+
+export function clinicSearchVariants(value: string): string[] {
+  const spaced = value.replace(/([\p{L}])(\d)/gu, "$1 $2");
+  const alternate = clinicSearchVariant(spaced);
+  const joined = alternate.replace(/([\p{L}])\s+(\d)/gu, "$1$2");
+  return [...new Set([spaced, alternate, joined])].filter(
+    (query) => query !== value,
   );
 }

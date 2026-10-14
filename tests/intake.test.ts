@@ -1,3 +1,4 @@
+import { clinicSearchVariants } from "../packages/syncro/src/matching.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -21,7 +22,7 @@ import {
   conversationPolicy,
 } from "../packages/conversation/src/policy.ts";
 import { SyncroReadClient } from "../packages/syncro/src/read-client.ts";
-function fixture(t: any) {
+function fixture(t: any, mode: "preview" | "live_test" = "preview") {
   const store = new Store(":memory:");
   store.seed();
   t.after(() => store.close());
@@ -44,6 +45,7 @@ function fixture(t: any) {
     syncro,
     (s) => s,
     () => {},
+    mode,
   );
   let turn = 0;
   const caller = (text: string) => {
@@ -241,7 +243,7 @@ test("partial updates preserve confirmed facts, prevent substituted digits and p
   assert.equal(persisted.callback.original, "403-317-2360");
   assert.equal(persisted.callback.e164, "+14033172360");
 });
-test("incomplete names and seven-digit callbacks cannot advance to ticket preparation", async (t) => {
+test("a first name is sufficient but seven-digit callbacks cannot advance to ticket preparation", async (t) => {
   const f = fixture(t);
   f.caller("Horizon Dental");
   await f.execute("match_clinic", { name: "Horizon Dental" });
@@ -264,7 +266,7 @@ test("incomplete names and seven-digit callbacks cannot advance to ticket prepar
   f.caller("Yes");
   await f.execute("confirm_intake", { fields: ["firstName"] });
   const prepared = await f.execute("prepare_ticket", {});
-  assert.equal(prepared.field, "lastName");
+  assert.equal(prepared.field, "callbackNumber");
   const confirmed = await f.execute("confirm_intake", {
     fields: ["callbackNumber"],
   });
@@ -293,7 +295,7 @@ test("semantic VAD defaults to balanced medium eagerness and preserves interrupt
   for (const rule of [
     "ONCE",
     "one short question",
-    "first and last name",
+    "first name alone is sufficient",
     "caller corrections as authoritative",
     "Seven digits",
     "Never guess",
@@ -755,4 +757,72 @@ test("digit clinic transcription searches the word variant internally and needs 
   assert.equal(confirmed.status, "confirmed");
   assert.equal(queries.length, 2);
   assert.equal(confirmed.question, undefined);
+});
+
+test("first-name-only intake prepares both ticket modes and submits a preview without asking for a surname", async (t) => {
+  for (const mode of ["preview", "live_test"] as const) {
+    const f = fixture(t, mode);
+    f.caller("Horizon Dental");
+    await f.execute("match_clinic", { name: "Horizon Dental" });
+    f.intake.assistantTurn("Is Horizon Family Dental correct?");
+    f.caller("Yes");
+    f.intake.assistantTurn("What's your first name?");
+    f.caller("Maren.");
+    const captured = await f.execute("confirm_intake", {
+      fields: ["firstName", "lastName"],
+    });
+    assert.equal(captured.status, "captured");
+    assert.equal(captured.fields.firstName, "Maren");
+    assert.equal(captured.fields.lastName, undefined);
+    assert.equal(captured.nameStatus, "captured");
+    assert.equal(captured.question, undefined);
+    f.intake.assistantTurn("What's your callback number?");
+    f.caller("4035550142");
+    f.intake.assistantTurn("Is 4035550142 your callback number?");
+    f.caller("Yes");
+    await f.execute("update_intake", {
+      fields: { issueType: "other", summary: "Imaging worklist is blank" },
+    });
+    const prepared = await f.execute("prepare_ticket", {});
+    assert.equal(prepared.status, "confirmation_required");
+    assert.equal(f.intake.preview()!.content.callerName, "Maren");
+    assert.doesNotMatch(prepared.spokenSummary, /last name|surname/i);
+    if (mode === "preview") {
+      f.intake.assistantTurn(prepared.spokenSummary);
+      f.caller("Yes");
+      assert.equal(
+        (await f.execute("create_ticket", { draftId: prepared.draftId }))
+          .outcome,
+        "previewed",
+      );
+    }
+  }
+});
+
+test("attached clinic digits match a word name and pending confirmations always include the suggestion", async (t) => {
+  assert.equal(normalizeClinic("Westbrook1"), normalizeClinic("Westbrook One"));
+  assert.ok(clinicSearchVariants("Westbrook One").includes("Westbrook1"));
+  assert.ok(clinicSearchVariants("Westbrook1").includes("Westbrook one"));
+  assert.deepEqual(
+    selectClinic("Westbrook1", [
+      { id: "synthetic-one", name: "Westbrook One" },
+    ]),
+    { id: "synthetic-one", name: "Westbrook One" },
+  );
+  const f = fixture(t);
+  f.caller("Horizon Dental");
+  await f.execute("match_clinic", { name: "Horizon Dental" });
+  const pending = await f.execute("match_clinic", {
+    name: "Horizon Family Dental",
+    confirm: true,
+  });
+  assert.equal(
+    pending.question,
+    "Is Horizon Family Dental the correct clinic?",
+  );
+  const preparing = await f.execute("prepare_ticket", {});
+  assert.equal(
+    preparing.question,
+    "Is Horizon Family Dental the correct clinic?",
+  );
 });

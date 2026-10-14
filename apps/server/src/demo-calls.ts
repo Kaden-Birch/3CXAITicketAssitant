@@ -374,7 +374,7 @@ export class DemoCalls {
           : "Real TEST ticket creation is explicitly enabled for one server-selected organization. Never claim success until create_ticket returns success=true.";
       const instructions =
         agent.prompt +
-        `\nThe following mandatory policy takes precedence over any conflicting custom instructions:\n${conversationPolicy}\nYou are in a browser demo call. ${modeInstruction} Match and confirm the clinic with match_clinic. Save and confirm caller fields before prepare_ticket. Wait for a new caller answer before create_ticket. Transfers are unavailable; never claim a technician is connected. Aim for ${agent.maxQuestions} intake questions, but always resolve incomplete or ambiguous required facts. Never expose internal identifiers.`;
+        `\nThe following mandatory policy takes precedence over any conflicting custom instructions:\n${conversationPolicy}\nYou are in a browser demo call. ${modeInstruction} Match and confirm the clinic with match_clinic. Save caller facts before prepare_ticket. A first name alone is sufficient; never ask for a surname. Only the callback needs its one individual readback. Do not confirm names or locations separately. Wait for a new caller answer before create_ticket. Transfers are unavailable; never claim a technician is connected. Aim for ${agent.maxQuestions} intake questions, but always resolve incomplete or ambiguous required facts. Never expose internal identifiers.`;
       form.set(
         "session",
         JSON.stringify({

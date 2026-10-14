@@ -80,20 +80,24 @@ export function spelledName(transcript: string): string | null {
 }
 export function fullNameAnswer(
   transcript: string,
-): { firstName: string; lastName: string } | null {
+): { firstName: string; lastName?: string } | null {
   const answer = transcript
     .trim()
     .replace(/^(?:my name is|i am|i['’]m|it['’]s)\s+/i, "")
     .replace(/[.!]+$/, "")
     .trim();
-  // Recover only a clear two-part answer to a name question; leave complex/uncertain answers for clarification.
-  const match = answer.match(/^(\p{Lu}[\p{L}'’\-]+)\s+(\p{Lu}[\p{L}'’\-]+)$/u);
+  // One clear first name is sufficient; retain a surname only if the caller volunteers it.
+  const match = answer.match(
+    /^(\p{Lu}[\p{L}'’\-]+)(?:\s+(\p{Lu}[\p{L}'’\-]+))?$/u,
+  );
   if (
     !match ||
-    /\b(?:Not|Sure|Unknown|Hello|Sorry|Printer|Computer|Broken)\b/i.test(answer)
+    /\b(?:Not|Sure|Unknown|Hello|Sorry|Printer|Computer|Broken|Uh|Um|Yeah|Yes|No|Okay)\b/i.test(
+      answer,
+    )
   )
     return null;
-  return { firstName: match[1], lastName: match[2] };
+  return { firstName: match[1], ...(match[2] ? { lastName: match[2] } : {}) };
 }
 export function validateCallback(original: string): {
   original: string;
