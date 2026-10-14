@@ -504,3 +504,83 @@ test("a delayed full-name question still captures its already supplied answer", 
     "captured",
   );
 });
+
+test("confirmed callback stays locked through unrelated answers, empty tool values and late interruption events", async (t) => {
+  const f = fixture(t);
+  f.caller("4035550142");
+  await f.execute("update_intake", {
+    fields: { callbackNumber: "4035550142" },
+  });
+  f.intake.assistantTurn(
+    "Is 4 0 3, 5 5 5, 0 1 4 2 the callback number?",
+    undefined,
+    "callback-readback",
+  );
+  f.caller("Yep.");
+  assert.equal(
+    (await f.execute("confirm_intake", { fields: ["callbackNumber"] })).status,
+    "confirmed",
+  );
+  f.caller("There is no computer or label in this room.");
+  f.intake.assistantInterrupted("callback-readback");
+  const cleared = await f.execute("update_intake", {
+    fields: { callbackNumber: "" },
+    unavailable: ["callbackNumber"],
+  });
+  assert.equal(cleared.fields.callbackNumber, "4035550142");
+  assert.equal(cleared.confirmed.callbackNumber, true);
+  assert.ok(!cleared.unavailable.includes("callbackNumber"));
+  const confirmation = await f.execute("confirm_intake", {
+    fields: ["callbackNumber"],
+  });
+  assert.equal(confirmation.status, "confirmed");
+  assert.equal(confirmation.question, undefined);
+  const missing = await f.execute("prepare_ticket", {});
+  assert.notEqual(missing.field, "callbackNumber");
+  assert.equal(missing.confirmed.callbackNumber, true);
+  f.caller("Actually change my callback to 4035550143.");
+  const corrected = await f.execute("update_intake", {
+    fields: { callbackNumber: "4035550143" },
+  });
+  assert.equal(corrected.confirmed.callbackNumber, false);
+});
+
+test("room number words need no separate confirmation and submission wording accepts one final yes", async (t) => {
+  const f = fixture(t);
+  f.caller("Horizon Dental");
+  await f.execute("match_clinic", { name: "Horizon Dental" });
+  f.intake.assistantTurn("Is Horizon Family Dental correct?");
+  f.caller("Yes");
+  f.intake.assistantTurn("What's your full name?");
+  f.caller("Lena Tester");
+  f.caller("4035550142");
+  await f.execute("update_intake", {
+    fields: { callbackNumber: "4035550142" },
+  });
+  f.intake.assistantTurn("Is 4035550142 your callback number?");
+  f.caller("Yes");
+  f.caller("It's in Imaging room two.");
+  const location = await f.execute("update_intake", {
+    fields: {
+      deviceLocation: "Imaging Room 2",
+      issueType: "other",
+      summary: "Ultrasound worklist is blank",
+    },
+  });
+  assert.equal(location.status, "saved");
+  const accepted = await f.execute("confirm_intake", {
+    fields: ["deviceLocation"],
+  });
+  assert.equal(accepted.status, "captured");
+  assert.equal(accepted.question, undefined);
+  const prepared = await f.execute("prepare_ticket", {});
+  assert.equal(prepared.status, "confirmation_required");
+  f.intake.assistantTurn(
+    "Ultrasound worklist is blank in Imaging Room 2. Do you want me to submit this as a preview?",
+  );
+  f.caller("Yeah");
+  const result = await f.execute("create_ticket", {
+    draftId: prepared.draftId,
+  });
+  assert.equal(result.outcome, "previewed");
+});

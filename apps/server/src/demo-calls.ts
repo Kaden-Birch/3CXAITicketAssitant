@@ -854,9 +854,9 @@ export class DemoCalls {
               result =
                 code === "INVALID_TOOL_ARGUMENTS"
                   ? {
-                      status: "clarification_required",
+                      status: "retry_tool",
                       instruction:
-                        "Use only the allowed tool fields. Ask one question to clarify missing caller information.",
+                        "Repair the tool arguments using its declared schema and existing captured facts, then call it again silently. This is an internal argument error, not missing caller information. Never ask for the callback, issue or other facts already provided.",
                     }
                   : {
                       outcome: "failed",

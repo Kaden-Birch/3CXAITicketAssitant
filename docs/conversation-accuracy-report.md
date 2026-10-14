@@ -72,3 +72,10 @@ The full backend suite passed before adding the delayed-name-question regression
 ### Background noise follow-up
 
 Added explicit pre-VAD input noise reduction with selectable room/headset profiles, English IT transcription guidance, and instructions to ignore background noise without revisiting previous answers. Added separate transcription, response, playback and tool-wait diagnostics to identify intermittent pauses. Medium (Standard / Balanced) is now the default and the local preview setting, following the caller’s request to undo Patient mode. Low remains available for extra pauses. Filtering does not guarantee correct transcription or remove other speakers. Verified with 44 backend tests and two mocked browser tests; live acoustic evaluation is outstanding.
+
+
+### Repeated callback and progress filler follow-up
+
+A confirmed callback stays locked through unrelated answers, formatting changes, empty model updates and late interruption events. Only a caller-supported correction changes the number and requires a new readback. Missing-field responses include current captured facts and name exactly one field; malformed tool arguments request silent internal repair instead of more intake questions. Clear device locations are accepted without separate confirmation, and room-number words/digits compare equivalently without changing asset identifiers. Final summary plus a submission question can authorize one submission; completion instructions end intake. Mandatory speech guidance removes repeated “one more detail” and progress narration.
+
+Regression checks use fictional caller details and cover callback preservation, explicit corrections, room-number normalization and a single final submission yes. These enforce backend state; natural speech behavior still needs live testing.

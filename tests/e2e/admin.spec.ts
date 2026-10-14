@@ -55,7 +55,9 @@ test("first-run setup, masked settings, search, role restrictions and mobile lay
   await page
     .getByRole("button", { name: "Agent settings", exact: true })
     .click();
-  await expect(page.getByLabel("Voice detection patience")).toHaveValue("low");
+  await expect(page.getByLabel("Voice detection patience")).toHaveValue(
+    "medium",
+  );
   await expect(page.getByLabel("Allow callers to interrupt")).toHaveValue(
     "true",
   );

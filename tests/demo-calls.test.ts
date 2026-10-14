@@ -267,7 +267,9 @@ test("live test requires customer allowlist and creates one correctly labelled c
     summary: "Bad",
     details: "Bad",
   });
-  assert.equal(wrong.status, "clarification_required");
+  assert.equal(wrong.status, "retry_tool");
+  assert.match(wrong.instruction, /existing captured facts/);
+  assert.match(wrong.instruction, /Never ask for the callback/);
   caller(f.socket, "Yes but change the callback");
   assert.equal(
     (

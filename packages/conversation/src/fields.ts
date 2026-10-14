@@ -133,3 +133,26 @@ export function explicitYes(text: string): boolean {
     )
   );
 }
+
+// Room numbers may be transcribed as words or digits; this never changes asset identifiers.
+export function normalizeLocation(value: string): string {
+  const digits: Record<string, string> = {
+    zero: "0",
+    one: "1",
+    two: "2",
+    three: "3",
+    four: "4",
+    five: "5",
+    six: "6",
+    seven: "7",
+    eight: "8",
+    nine: "9",
+  };
+  return value
+    .toLowerCase()
+    .replace(
+      /\b(zero|one|two|three|four|five|six|seven|eight|nine)\b/g,
+      (word) => digits[word],
+    )
+    .replace(/[^\p{L}\p{N}]/gu, "");
+}

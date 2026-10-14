@@ -11,6 +11,7 @@ import {
   capturedIdentifier,
   spelledName,
   fullNameAnswer,
+  normalizeLocation,
 } from "./fields.ts";
 const short = z.string().max(150);
 const fieldSchema = z
@@ -206,7 +207,7 @@ export class DemoIntake {
       : /\b(?:last name|surname)\b/i.test(readback?.text ?? "")
         ? (["lastName"] as Field[])
         : (Object.keys(readback?.fields ?? {}).filter(
-            (f) => f === "firstName" || f === "lastName",
+            (f) => f !== "callbackNumber",
           ) as Field[]);
     const correctedName = /^no\b/i.test(text.trim()) ? spelledName(text) : null;
     if (correctedName && nameFields.length === 1 && !this.immutable()) {
@@ -269,6 +270,9 @@ export class DemoIntake {
     const confirmationQuestion =
       /\b(?:confirm|correct|right|accurate|did you mean|is your|is it|is that|is this)\b|\bis\b.*\b(?:callback|number|spelled|name)\b/i.test(
         text,
+      ) ||
+      /\b(?:do you want me to|shall i|may i|can i)\s+(?:submit|create|send)\b/i.test(
+        text,
       );
     const fields = confirmationQuestion
       ? this.matchingReadbackFields(text)
@@ -313,7 +317,7 @@ export class DemoIntake {
     if (removed.some((r) => r.draftId === this.finalReadback?.draftId))
       this.finalReadback = null;
     for (const [field, source] of this.confirmedByReadback)
-      if (source === item) {
+      if (source === item && field !== "callbackNumber") {
         this.state.confirmed[field] = false;
         this.confirmedByReadback.delete(field);
       }
@@ -328,14 +332,16 @@ export class DemoIntake {
         field === "callbackNumber"
           ? !!this.state.callback?.e164 &&
             callbackDigits(text).includes(this.state.callback.e164.slice(2))
-          : ["workstationNumber", "printerIdentifier"].includes(field)
-            ? capturedIdentifier(text, value)?.toLowerCase() ===
-              value.toLowerCase()
-            : hasSpokenValue(
-                text,
-                value,
-                !["firstName", "lastName", "deviceLocation"].includes(field),
-              );
+          : field === "deviceLocation"
+            ? normalizeLocation(text).includes(normalizeLocation(value))
+            : ["workstationNumber", "printerIdentifier"].includes(field)
+              ? capturedIdentifier(text, value)?.toLowerCase() ===
+                value.toLowerCase()
+              : hasSpokenValue(
+                  text,
+                  value,
+                  !["firstName", "lastName", "deviceLocation"].includes(field),
+                );
       if (matched) fields[field] = value;
     }
     return fields;
@@ -421,7 +427,14 @@ export class DemoIntake {
     }
   }
   private clarification(field: string, question: string) {
-    return { status: "clarification_required", field, question };
+    return {
+      status: "clarification_required",
+      field,
+      question,
+      ...this.view(),
+      instruction:
+        "Ask only the provided question for this missing field. All other captured facts remain available. Never claim another field is missing, or request an already confirmed callback.",
+    };
   }
   private supportingValue(field: Field, value: string) {
     const floor =
@@ -434,6 +447,9 @@ export class DemoIntake {
           callbackDigits(value).length >= 7 &&
           callbackDigits(evidence.text).includes(callbackDigits(value))
         )
+          captured = value;
+      } else if (field === "deviceLocation") {
+        if (normalizeLocation(evidence.text).includes(normalizeLocation(value)))
           captured = value;
       } else if (["workstationNumber", "printerIdentifier"].includes(field)) {
         captured = capturedIdentifier(evidence.text, value);
@@ -449,7 +465,9 @@ export class DemoIntake {
       const compact = (v: string) =>
         field === "callbackNumber"
           ? callbackDigits(v)
-          : v.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+          : field === "deviceLocation"
+            ? normalizeLocation(v)
+            : v.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
       const position = compact(evidence.text).lastIndexOf(compact(captured));
       if (
         captured !== this.state.fields[field] &&
@@ -567,6 +585,14 @@ export class DemoIntake {
           args.fields as Record<string, string>,
         )) {
           let value = this.sanitize(rawValue);
+          if (!value && this.state.fields[field]) {
+            problems.push({
+              field,
+              repair: true,
+              question: `Keep the captured ${field}: ${this.state.fields[field]}. An empty tool value cannot erase caller information. Continue without asking again.`,
+            });
+            continue;
+          }
           if (this.state.fields[field] === value) continue;
           if (
             field === "callbackNumber" &&
@@ -641,6 +667,14 @@ export class DemoIntake {
         }
         for (const field of args.unavailable ?? []) {
           if (
+            field === "callbackNumber" &&
+            this.state.confirmed.callbackNumber &&
+            !/\b(?:callback|phone|telephone)\b.*\b(?:cannot|can.t|unavailable|don.t have)\b|\b(?:cannot|can.t|don.t have)\b.*\b(?:callback|phone|telephone)\b/i.test(
+              this.latestText,
+            )
+          )
+            continue;
+          if (
             !/\b(?:can't|cannot|don't have|do not have|don't know|do not know|unavailable|no label|no number)\b/i.test(
               this.latestText,
             )
@@ -679,11 +713,7 @@ export class DemoIntake {
       }
       case "confirm_intake": {
         for (const field of args.fields as Field[]) {
-          if (
-            (field === "firstName" || field === "lastName") &&
-            this.state.fields[field]
-          )
-            continue;
+          if (field !== "callbackNumber" && this.state.fields[field]) continue;
           if (this.state.confirmed[field]) continue;
           if (
             !this.state.fields[field] ||
@@ -705,14 +735,12 @@ export class DemoIntake {
         }
         this.persist();
         return {
-          status: args.fields.every(
-            (f: string) => f === "firstName" || f === "lastName",
-          )
+          status: args.fields.every((f: string) => f !== "callbackNumber")
             ? "captured"
             : "confirmed",
           ...this.view(),
           instruction:
-            "Do not ask for name confirmation. Continue with the next missing fact.",
+            "Confirmed callback is locked; never collect or read it back again unless the caller explicitly corrects it. Do not ask for name confirmation or separate device/location confirmation. Continue with the next missing fact.",
         };
       }
       case "prepare_ticket": {
@@ -956,7 +984,7 @@ export class DemoIntake {
         outcome: "previewed",
         success: false,
         instruction:
-          "The test request is recorded. No real Syncro ticket was created.",
+          "The test request is recorded. No real Syncro ticket was created. Briefly tell the caller it is complete; do not ask any further intake, summary or submission questions.",
       };
     }
     if (!draft.clinicId || !this.state.clinicConfirmed)
