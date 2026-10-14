@@ -2,7 +2,11 @@ import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import { Store } from "../../../apps/server/src/store.ts";
 import { SyncroReadClient } from "../../syncro/src/read-client.ts";
-import { normalizeClinic, selectClinic } from "../../syncro/src/matching.ts";
+import {
+  normalizeClinic,
+  selectClinic,
+  clinicSearchVariant,
+} from "../../syncro/src/matching.ts";
 import {
   callbackDigits,
   explicitYes,
@@ -596,7 +600,11 @@ export class DemoIntake {
           selectClinic(args.name, [this.state.clinic]) &&
           !(this.state.correctionPending ?? []).includes("clinic")
         )
-          return { status: "confirmed" };
+          return {
+            status: "confirmed",
+            instruction:
+              "Clinic is accepted. Ask the next missing intake question directly; do not narrate matching or confirm this clinic again.",
+          };
         if (args.confirm) {
           if (
             !this.state.clinic ||
@@ -622,7 +630,11 @@ export class DemoIntake {
             "clinic.matched",
             "One caller-confirmed clinic bound server-side",
           );
-          return { status: "confirmed" };
+          return {
+            status: "confirmed",
+            instruction:
+              "Clinic is accepted. Ask the next missing intake question directly; do not narrate matching or confirm this clinic again.",
+          };
         }
         if (
           !this.evidence.some((t) =>
@@ -656,10 +668,18 @@ export class DemoIntake {
         this.state.correctionPending = (
           this.state.correctionPending ?? []
         ).filter((f) => f !== "clinic");
-        this.state.clinic = selectClinic(
-          args.name,
-          await this.syncro.clinics(this.sanitize(args.name)),
-        );
+        const query = this.sanitize(args.name);
+        let candidates = await this.syncro.clinics(query);
+        const variant = clinicSearchVariant(query);
+        if (!selectClinic(query, candidates) && variant !== query) {
+          const extra = await this.syncro.clinics(variant);
+          candidates = [
+            ...new Map(
+              [...candidates, ...extra].map((clinic) => [clinic.id, clinic]),
+            ).values(),
+          ];
+        }
+        this.state.clinic = selectClinic(query, candidates);
         this.state.clinicTurn = this.latestCommitted;
         this.persist();
         this.store.db
@@ -671,6 +691,9 @@ export class DemoIntake {
           ? {
               status: "confirmation_required",
               suggested_clinic_name: this.sanitize(this.state.clinic.name),
+              question: `Is ${this.sanitize(this.state.clinic.name)} the correct clinic?`,
+              instruction:
+                "Ask this single clinic question directly. No introduction, matching narration, spelling request or extra speaking turn. After yes, ask the next missing intake question.",
             }
           : this.clarification("clinic", "Could you spell the clinic name?");
       }

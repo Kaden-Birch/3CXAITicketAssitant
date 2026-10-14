@@ -89,3 +89,8 @@ A captured name and an unsupported model spelling previously produced a retry re
 ### Callback extension and abrupt demo ending follow-up
 
 The reported call ended at the existing five-minute duration limit. Added a visible countdown, last-minute warning and duration-limit explanation, separate from browser heartbeat expiry. Callback extensions now have a dedicated field rather than being appended to callback digits or confused with the extension of a faulty phone. Qualified callback agreement can preserve/add an extension without another readback; it cannot approve a final ticket. Structured answers to impact, errors, onset and troubleshooting remain available, including unknown answers. A medical cart with no PC label retains its room location and workstation unavailability. Verified with 51 backend tests and two browser tests; no live voice call or real ticket was initiated.
+
+
+### Clinic number transcription follow-up
+
+Single-digit clinic tokens and their English number-word equivalents now normalize identically. An unsuccessful bounded clinic lookup can try the alternate number representation internally, keeping the original clinic words and conservative matching threshold. Candidates from both searches are deduplicated; ambiguity still blocks a suggestion. Different numeric clinic identifiers cannot match by edit similarity. Tool results supply one direct confirmation question and tell the model to skip matching narration and spelling requests for number transcription differences. Two fictional-clinic regressions cover word/digit equivalence, duplicate ambiguity, different numbers and a single affirmative confirmation.

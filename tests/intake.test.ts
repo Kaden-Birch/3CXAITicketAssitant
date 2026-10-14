@@ -11,7 +11,11 @@ import {
   explicitYes,
   hasSpokenValue,
 } from "../packages/conversation/src/fields.ts";
-import { selectClinic } from "../packages/syncro/src/matching.ts";
+import {
+  selectClinic,
+  normalizeClinic,
+  clinicSearchVariant,
+} from "../packages/syncro/src/matching.ts";
 import {
   semanticTurnDetection,
   conversationPolicy,
@@ -129,6 +133,9 @@ test("model-facing tools expose only one clinic name, no directory, contacts, hi
   assert.deepEqual(result, {
     status: "confirmation_required",
     suggested_clinic_name: "Horizon Family Dental",
+    question: "Is Horizon Family Dental the correct clinic?",
+    instruction:
+      "Ask this single clinic question directly. No introduction, matching narration, spelling request or extra speaking turn. After yes, ask the next missing intake question.",
   });
   assert.ok(!JSON.stringify(result).includes("987654321"));
   assert.ok(!JSON.stringify(result).includes("Unrelated Clinic"));
@@ -143,7 +150,8 @@ test("model-facing tools expose only one clinic name, no directory, contacts, hi
     name: "Horizon Family Dental",
     confirm: true,
   });
-  assert.deepEqual(confirm, { status: "confirmed" });
+  assert.equal(confirm.status, "confirmed");
+  assert.match(confirm.instruction, /do not narrate matching/);
   assert.equal(
     JSON.parse(
       String(
@@ -674,4 +682,77 @@ test("known impact, no error and unknown troubleshooting remain available as ans
   assert.match(state.answeredTopics.errors, /No error/);
   assert.equal(state.answeredTopics.troubleshooting, "I don't know.");
   assert.match(state.instruction, /Do not repeat any topic/);
+});
+
+test("clinic number words and digits match without reducing ambiguity protection", () => {
+  const clinic = { id: "synthetic-one", name: "Westbrook Clinic One" };
+  assert.equal(
+    normalizeClinic("Westbrook Clinic 1"),
+    normalizeClinic(clinic.name),
+  );
+  assert.deepEqual(selectClinic("Westbrook Clinic 1", [clinic]), clinic);
+  assert.equal(
+    clinicSearchVariant("Westbrook Clinic 1"),
+    "Westbrook Clinic one",
+  );
+  assert.equal(
+    clinicSearchVariant("Westbrook Clinic One"),
+    "Westbrook Clinic 1",
+  );
+  assert.equal(
+    selectClinic("Westbrook Clinic 1", [
+      clinic,
+      { id: "synthetic-duplicate", name: "Westbrook Clinic 1" },
+    ]),
+    null,
+  );
+  assert.equal(
+    selectClinic("Westbrook Clinic 1", [
+      { id: "unrelated", name: "Westbrook Clinic Two" },
+    ]),
+    null,
+  );
+});
+
+test("digit clinic transcription searches the word variant internally and needs one confirmation", async (t) => {
+  const store = new Store(":memory:");
+  store.seed();
+  t.after(() => store.close());
+  const session = String(
+    store.db.prepare("SELECT id FROM sessions LIMIT 1").get()!.id,
+  );
+  const queries: string[] = [];
+  const syncro = {
+    clinics: async (query: string) => {
+      queries.push(query);
+      return query === "Westbrook Clinic one"
+        ? [{ id: "synthetic-one", name: "Westbrook Clinic One" }]
+        : [];
+    },
+  } as unknown as SyncroReadClient;
+  const intake = new DemoIntake(
+    session,
+    store,
+    syncro,
+    (s) => s,
+    () => {},
+  );
+  intake.callerCommitted(1);
+  intake.callerTurn(1, "Westbrook Clinic 1.");
+  const matched = (await intake.execute("match_clinic", {
+    name: "Westbrook Clinic 1",
+  })) as any;
+  assert.equal(matched.status, "confirmation_required");
+  assert.equal(matched.question, "Is Westbrook Clinic One the correct clinic?");
+  assert.deepEqual(queries, ["Westbrook Clinic 1", "Westbrook Clinic one"]);
+  assert.doesNotMatch(JSON.stringify(matched), /synthetic-one/);
+  intake.assistantTurn(matched.question);
+  intake.callerCommitted(2);
+  intake.callerTurn(2, "Yeah.");
+  const confirmed = (await intake.execute("match_clinic", {
+    name: "Westbrook Clinic One",
+  })) as any;
+  assert.equal(confirmed.status, "confirmed");
+  assert.equal(queries.length, 2);
+  assert.equal(confirmed.question, undefined);
 });

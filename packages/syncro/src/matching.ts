@@ -1,12 +1,32 @@
+const numberWords = [
+  "zero",
+  "one",
+  "two",
+  "three",
+  "four",
+  "five",
+  "six",
+  "seven",
+  "eight",
+  "nine",
+];
+
 export function normalizeClinic(value: string): string {
   return value
     .normalize("NFKC")
     .toLowerCase()
+    .replace(
+      /\b(zero|one|two|three|four|five|six|seven|eight|nine)\b/g,
+      (word) => String(numberWords.indexOf(word)),
+    )
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim()
     .replace(/\s+/g, " ");
 }
 function similarity(a: string, b: string): number {
+  const aNumbers = a.match(/\b\d+\b/g) ?? [];
+  const bNumbers = b.match(/\b\d+\b/g) ?? [];
+  if (aNumbers.join(",") !== bNumbers.join(",")) return 0;
   const row = Array.from({ length: b.length + 1 }, (_, i) => i);
   for (let i = 1; i <= a.length; i++) {
     let previous = row[0];
@@ -50,4 +70,17 @@ export function selectClinic(
   if (!ranked.length || (ranked[1] && ranked[0].score - ranked[1].score < 0.08))
     return null;
   return { id: ranked[0].id, name: ranked[0].name };
+}
+
+// Try both transcription forms without broadening the clinic name or lowering match safety.
+export function clinicSearchVariant(value: string): string {
+  if (/\b[0-9]\b/.test(value))
+    return value.replace(
+      /\b([0-9])\b/g,
+      (_, digit) => numberWords[Number(digit)],
+    );
+  return value.replace(
+    /\b(zero|one|two|three|four|five|six|seven|eight|nine)\b/gi,
+    (word) => String(numberWords.indexOf(word.toLowerCase())),
+  );
 }

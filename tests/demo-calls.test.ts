@@ -149,10 +149,10 @@ async function draft(f: Awaited<ReturnType<typeof fixture>>, live = false) {
   f.manager.activate(f.owner, started.id);
   caller(f.socket, "Demo Clinic, printer scan failure");
   const match = await tool(f.socket, "match_clinic", { name: "Demo Clinic" });
-  assert.deepEqual(match, {
-    status: "confirmation_required",
-    suggested_clinic_name: "Demo Clinic",
-  });
+  assert.equal(match.status, "confirmation_required");
+  assert.equal(match.suggested_clinic_name, "Demo Clinic");
+  assert.equal(match.question, "Is Demo Clinic the correct clinic?");
+  assert.match(match.instruction, /No introduction/);
   assistant(f.socket, "Did you mean Demo Clinic?");
   caller(f.socket, "Yes, that's the clinic");
   await tool(f.socket, "match_clinic", { name: "Demo Clinic", confirm: true });
