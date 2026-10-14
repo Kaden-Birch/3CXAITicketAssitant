@@ -61,3 +61,9 @@ The speaking policy prohibits tool narration, routine spelling, requests to writ
 Additional regression fixtures use fictional identities/numbers/device labels and reproduce the failure pattern, including a spelled name followed by stray text, late ASR, stale name updates, device formatting, repeated confirmations, and an unread-summary readiness yes. Latest verification: 40 backend tests and both browser workflows passed, along with TypeScript/build and formatting checks. No additional OpenAI call or Syncro write was made by the implementation agent. The next user demo should verify actual model speech against this simpler flow.
 
 No new SQL migration is needed for this follow-up. Optional evidence metadata is stored in the existing intake JSON. Historical call records are preserved.
+
+## Name collection without confirmation
+
+The user requested one name question with no routine name confirmation. Clear two-part answers to the full-name question are now captured directly from the caller transcript, including when the question transcript arrives late. A conflicting AI-proposed spelling is repaired using the captured name without asking the caller to repeat it. Missing or unclear name parts still require clarification. Name confirmation calls return captured facts and no question; names are excluded from the spoken confirmation fields in the final issue summary. Ticket wording identifies the name as caller-provided rather than verified identity. Clinic, callback and final ticket-approval gates are unchanged.
+
+The full backend suite passed before adding the delayed-name-question regression; the updated 13-test intake suite, TypeScript/build and formatting passed afterward. CI runs the complete current suite. No SQL migration or credential change is required.

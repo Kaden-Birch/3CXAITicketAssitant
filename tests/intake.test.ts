@@ -353,7 +353,7 @@ test("call regression: trailing noise preserves Kora correction and confirmation
   assert.equal(stale.fields.firstName, "Kora");
   const prepared = await f.execute("prepare_ticket", {});
   assert.equal(prepared.status, "confirmation_required");
-  assert.match(prepared.spokenSummary, /Kora Tester/);
+  assert.doesNotMatch(prepared.spokenSummary, /Kora Tester/);
   assert.match(prepared.spokenSummary, /DEMO-W099/);
   assert.equal((prepared.spokenSummary.match(/\?/g) ?? []).length, 1);
   f.intake.assistantTurn(prepared.spokenSummary);
@@ -395,13 +395,13 @@ test("late correction ASR and delayed field saves cannot lose or revert the spel
   f.intake.callerTurn(5, "Yes.");
   assert.equal(
     (await f.execute("confirm_intake", { fields: ["firstName"] })).status,
-    "confirmed",
+    "captured",
   );
   f.intake.callerCommitted(6);
   f.intake.callerTurn(6, "An unrelated detail");
   assert.equal(
     (await f.execute("confirm_intake", { fields: ["firstName"] })).status,
-    "confirmed",
+    "captured",
   );
   const stale = await f.execute("update_intake", {
     fields: { firstName: "Cora" },
@@ -467,4 +467,40 @@ test("a later correction in the same utterance wins and formatting-only callback
   });
   assert.equal(formatted.fields.callbackNumber, "4035550136");
   assert.equal(formatted.confirmed.callbackNumber, true);
+});
+
+test("a clear full-name answer is captured once and an AI mishearing is repaired without asking again", async (t) => {
+  const f = fixture(t);
+  f.intake.assistantTurn("What's your full name, first and last?", 0);
+  f.caller("Lena Tester.");
+  const result = await f.execute("update_intake", {
+    fields: { firstName: "Rena", lastName: "Tester" },
+  });
+  assert.equal(result.status, "retry_update");
+  assert.equal(result.fields.firstName, "Lena");
+  assert.equal(result.fields.lastName, "Tester");
+  assert.match(result.instruction, /Do not substitute/);
+  const collected = await f.execute("confirm_intake", {
+    fields: ["firstName", "lastName"],
+  });
+  assert.equal(collected.status, "captured");
+  assert.equal(collected.question, undefined);
+  assert.match(collected.instruction, /Do not ask for name confirmation/);
+});
+
+test("a delayed full-name question still captures its already supplied answer", async (t) => {
+  const f = fixture(t);
+  f.caller("Lena Tester.");
+  f.intake.assistantTurn("What's your full name, first and last?", 0);
+  const result = await f.execute("update_intake", {
+    fields: { firstName: "Rena" },
+  });
+  assert.equal(result.fields.firstName, "Lena");
+  assert.equal(result.fields.lastName, "Tester");
+  assert.equal(result.status, "retry_update");
+  assert.equal(
+    (await f.execute("confirm_intake", { fields: ["firstName", "lastName"] }))
+      .status,
+    "captured",
+  );
 });

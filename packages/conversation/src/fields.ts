@@ -78,6 +78,23 @@ export function spelledName(transcript: string): string | null {
   const letters = match[0].replace(/[^A-Za-z]/g, "").toLowerCase();
   return letters[0].toUpperCase() + letters.slice(1);
 }
+export function fullNameAnswer(
+  transcript: string,
+): { firstName: string; lastName: string } | null {
+  const answer = transcript
+    .trim()
+    .replace(/^(?:my name is|i am|i['’]m|it['’]s)\s+/i, "")
+    .replace(/[.!]+$/, "")
+    .trim();
+  // Recover only a clear two-part answer to a name question; leave complex/uncertain answers for clarification.
+  const match = answer.match(/^(\p{Lu}[\p{L}'’\-]+)\s+(\p{Lu}[\p{L}'’\-]+)$/u);
+  if (
+    !match ||
+    /\b(?:Not|Sure|Unknown|Hello|Sorry|Printer|Computer|Broken)\b/i.test(answer)
+  )
+    return null;
+  return { firstName: match[1], lastName: match[2] };
+}
 export function validateCallback(original: string): {
   original: string;
   e164: string | null;

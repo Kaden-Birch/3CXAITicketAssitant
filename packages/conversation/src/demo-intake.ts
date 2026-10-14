@@ -10,6 +10,7 @@ import {
   hasSpokenValue,
   capturedIdentifier,
   spelledName,
+  fullNameAnswer,
 } from "./fields.ts";
 const short = z.string().max(150);
 const fieldSchema = z
@@ -68,7 +69,7 @@ const descriptions: Record<keyof typeof schemas, string> = {
   confirm_intake:
     "Normally unnecessary: yes replies to spoken readbacks are recognized automatically. Already confirmed fields stay confirmed. Do not use this as a checklist or repeat name/device questions; those fields are included in the final summary.",
   prepare_ticket:
-    "Prepare the short final summary after collecting the facts. Names and devices are confirmed together in this summary, not separately. Speak spokenSummary once; after a fresh yes immediately call create_ticket. Do not ask whether the caller is ready or ask them to write the summary.",
+    "Prepare the short final summary after collecting the facts. Names do not need confirmation. Devices can be included in this summary, not checked separately. Speak spokenSummary once; after a fresh yes immediately call create_ticket. Do not ask whether the caller is ready or ask them to write the summary.",
   create_ticket:
     "Submit the prepared ticket once after a new explicit yes. Only report a real ticket number if success is true. Never retry an unknown submission outcome.",
   transfer_to_support:
@@ -167,6 +168,39 @@ export class DemoIntake {
       this.latestText = text;
     }
     const readback = this.readbacks.filter((r) => r.turn < index).at(-1);
+    const capturedName = /\bfull name\b|\bfirst and last\b/i.test(
+      readback?.text ?? "",
+    )
+      ? fullNameAnswer(text)
+      : null;
+    if (capturedName && !this.immutable()) {
+      for (const [key, value] of Object.entries(capturedName)) {
+        const field = key as Field;
+        if (
+          index <
+            (this.state.evidenceTurns?.[field] ??
+              this.state.updatedTurns[field] ??
+              -1) ||
+          this.state.fields[field] === value
+        )
+          continue;
+        this.invalidateDraft();
+        this.state.fields[field] = value;
+        this.state.confirmed[field] = false;
+        this.state.updatedTurns[field] = index;
+        this.state.evidenceTurns ??= {};
+        this.state.evidenceTurns[field] = index;
+        this.state.evidencePositions ??= {};
+        this.state.evidencePositions[field] = text
+          .toLowerCase()
+          .replace(/[^\p{L}\p{N}]/gu, "")
+          .lastIndexOf(value.toLowerCase());
+      }
+      this.state.correctionPending = (
+        this.state.correctionPending ?? []
+      ).filter((f) => f !== "name");
+      this.persist();
+    }
     const nameFields = /\bfirst name\b/i.test(readback?.text ?? "")
       ? (["firstName"] as Field[])
       : /\b(?:last name|surname)\b/i.test(readback?.text ?? "")
@@ -264,7 +298,12 @@ export class DemoIntake {
       clinic,
       draftId: final ? draft!.draftId : null,
     });
+    this.readbacks.sort((a, b) => a.turn - b.turn);
     if (this.readbacks.length > 30) this.readbacks.shift();
+    if (/\bfull name\b|\bfirst and last\b/i.test(text)) {
+      const answer = this.evidence.find((e) => e.index === turn + 1);
+      if (answer) this.callerTurn(answer.index, answer.text);
+    }
     if (final) this.finalReadback = { draftId: draft!.draftId, turn };
     this.recognizeConfirmation();
   }
@@ -626,7 +665,7 @@ export class DemoIntake {
         return {
           ...this.view(),
           instruction:
-            "Do not narrate these internal results. Keep captured facts; ask only the next unknown detail. Use the final summary to confirm names and devices together.",
+            "Do not narrate these internal results. Keep captured facts; ask only the next unknown detail. Names need no confirmation. Use the final summary for the issue and device.",
           ...(problems.length
             ? problems[0].repair
               ? {
@@ -640,6 +679,11 @@ export class DemoIntake {
       }
       case "confirm_intake": {
         for (const field of args.fields as Field[]) {
+          if (
+            (field === "firstName" || field === "lastName") &&
+            this.state.fields[field]
+          )
+            continue;
           if (this.state.confirmed[field]) continue;
           if (
             !this.state.fields[field] ||
@@ -660,7 +704,16 @@ export class DemoIntake {
           );
         }
         this.persist();
-        return { status: "confirmed", ...this.view() };
+        return {
+          status: args.fields.every(
+            (f: string) => f === "firstName" || f === "lastName",
+          )
+            ? "captured"
+            : "confirmed",
+          ...this.view(),
+          instruction:
+            "Do not ask for name confirmation. Continue with the next missing fact.",
+        };
       }
       case "prepare_ticket": {
         if (this.immutable()) return { status: "submission_locked" };
@@ -760,7 +813,11 @@ export class DemoIntake {
           source: "ChinookIT Browser Demo",
           writeMode: this.mode,
           confirmationFields: fieldNames.filter(
-            (f) => s.fields[f] && !s.confirmed[f],
+            (f) =>
+              f !== "firstName" &&
+              f !== "lastName" &&
+              s.fields[f] &&
+              !s.confirmed[f],
           ),
         };
         this.store.db
@@ -929,7 +986,7 @@ export class DemoIntake {
       "One confirmed real test submission started",
     );
     try {
-      const body = `Confirmed caller: ${draft.callerName}\nCallback (authoritative): ${draft.callbackNumber}\nOriginally captured: ${draft.callbackOriginal}\nWorkstation: ${draft.workstationNumber ?? "Not provided"}\nPrinter: ${draft.printerIdentifier ?? "Not provided"}\nExtension: ${draft.phoneExtension ?? "Not provided"}\nLocation: ${draft.deviceLocation ?? "Not provided"}\nUnavailable fields: ${draft.unavailableFields.join(", ")}\nIssue: ${draft.summary}\nCaller-reported context (not a diagnosis): ${draft.details ?? ""}\nSource: ChinookIT Browser Demo\nInternal call reference: ${this.sessionId}`;
+      const body = `Caller: ${draft.callerName}\nCallback (authoritative): ${draft.callbackNumber}\nOriginally captured: ${draft.callbackOriginal}\nWorkstation: ${draft.workstationNumber ?? "Not provided"}\nPrinter: ${draft.printerIdentifier ?? "Not provided"}\nExtension: ${draft.phoneExtension ?? "Not provided"}\nLocation: ${draft.deviceLocation ?? "Not provided"}\nUnavailable fields: ${draft.unavailableFields.join(", ")}\nIssue: ${draft.summary}\nCaller-reported context (not a diagnosis): ${draft.details ?? ""}\nSource: ChinookIT Browser Demo\nInternal call reference: ${this.sessionId}`;
       const result = await this.syncro.createTestTicket(
         draft.clinicId,
         undefined,
