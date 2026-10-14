@@ -420,6 +420,13 @@ test("existing prompts receive mandatory continuity, one greeting and semantic l
   assert.ok(session.instructions.includes("Custom receptionist instructions"));
   assert.ok(session.instructions.includes("Never greet or introduce yourself"));
   assert.ok(!session.instructions.includes("customer ID 42"));
+  assert.deepEqual(session.audio.input.noise_reduction, { type: "far_field" });
+  assert.equal(session.audio.input.transcription.language, "en");
+  assert.ok(
+    session.audio.input.transcription.prompt.includes(
+      "Preserve spoken letters and digits exactly",
+    ),
+  );
   assert.deepEqual(session.audio.input.turn_detection, {
     type: "semantic_vad",
     eagerness: "low",
@@ -590,4 +597,80 @@ test("a delayed readback transcript recognizes the reply using response-start tu
     fields: ["callbackNumber"],
   });
   assert.equal(result.status, "confirmed");
+});
+
+test("microphone profiles and balanced VAD are applied to each new call", async (t) => {
+  const f = await fixture();
+  t.after(async () => {
+    await f.manager.close();
+    f.store.close();
+  });
+  for (const noiseReduction of ["near_field", "off"] as const) {
+    f.store.db
+      .prepare("UPDATE prompt_versions SET content_json=? WHERE id=?")
+      .run(
+        JSON.stringify({
+          ...f.store.agent(),
+          noiseReduction,
+          vadEagerness: "medium",
+        }),
+        f.store.setting("active_prompt"),
+      );
+    const started = await f.manager.start(f.owner, { sdp: offer });
+    const request = f.requests
+      .filter((r) => r.url.endsWith("/realtime/calls"))
+      .at(-1)!;
+    const session = JSON.parse(
+      (request.body as FormData).get("session") as string,
+    );
+    assert.deepEqual(
+      session.audio.input.noise_reduction,
+      noiseReduction === "off" ? null : { type: "near_field" },
+    );
+    assert.equal(session.audio.input.turn_detection.eagerness, "medium");
+    f.manager.activate(f.owner, started.id);
+    assert.equal(
+      f.socket.sent.filter((e) => e.type === "session.update").at(-1).session
+        .audio.input.turn_detection.eagerness,
+      "medium",
+    );
+    await f.manager.end(f.owner, started.id);
+  }
+});
+
+test("call diagnostics separate transcription, response and playback delays", async (t) => {
+  const f = await fixture();
+  t.after(async () => {
+    await f.manager.close();
+    f.store.close();
+  });
+  const started = await f.manager.start(f.owner, { sdp: offer });
+  f.manager.activate(f.owner, started.id);
+  f.socket.emit({ type: "input_audio_buffer.speech_started" });
+  f.socket.emit({ type: "input_audio_buffer.speech_stopped" });
+  f.socket.emit({
+    type: "input_audio_buffer.committed",
+    item_id: "timing-caller",
+  });
+  f.socket.emit({
+    type: "conversation.item.input_audio_transcription.completed",
+    item_id: "timing-caller",
+    transcript: "A printer is not printing.",
+  });
+  f.socket.emit({
+    type: "response.created",
+    response: { id: "timing-response" },
+  });
+  f.socket.emit({ type: "output_audio_buffer.started" });
+  const events = f.manager.snapshot(f.owner, started.id).events as any[];
+  for (const type of [
+    "timing.transcription",
+    "timing.response",
+    "timing.audio",
+  ]) {
+    const event = events.find((e) => e.event_type === type);
+    assert.ok(event, type);
+    assert.match(event.public_summary, /: \d+ ms$/);
+    assert.ok(!event.public_summary.includes("printer"));
+  }
 });

@@ -820,6 +820,7 @@ function Agent({
               maxQuestions: a.maxQuestions,
               requireConfirmation: true,
               vadEagerness: a.vadEagerness,
+              noiseReduction: a.noiseReduction,
               interruptionEnabled: a.interruptionEnabled,
               ticketCreationEnabled: a.ticketCreationEnabled,
               retentionDays: a.retentionDays,
@@ -862,6 +863,22 @@ function Agent({
               <option value="high">High (Fast)</option>
             </select>
           </label>
+          <label>
+            Microphone noise reduction
+            <select
+              value={a.noiseReduction ?? "far_field"}
+              onChange={(e) => setA({ ...a, noiseReduction: e.target.value })}
+            >
+              <option value="far_field">Laptop / room microphone</option>
+              <option value="near_field">Headset / close microphone</option>
+              <option value="off">Off</option>
+            </select>
+          </label>
+          <p className="muted">
+            Patient waits longer for incomplete speech. Balanced replies sooner;
+            Fast may interrupt pauses while spelling. Noise reduction applies to
+            new browser calls.
+          </p>
           <label>
             Allow callers to interrupt
             <select

@@ -658,6 +658,15 @@
                       "high"
                     ]
                   },
+                  "noiseReduction": {
+                    "default": "far_field",
+                    "type": "string",
+                    "enum": [
+                      "far_field",
+                      "near_field",
+                      "off"
+                    ]
+                  },
                   "interruptionEnabled": {
                     "default": true,
                     "type": "boolean"
@@ -684,6 +693,7 @@
                   "maxQuestions",
                   "requireConfirmation",
                   "vadEagerness",
+                  "noiseReduction",
                   "interruptionEnabled",
                   "ticketCreationEnabled",
                   "retentionDays",

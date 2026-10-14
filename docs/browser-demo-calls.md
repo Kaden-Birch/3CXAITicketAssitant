@@ -33,3 +33,16 @@ Official references: [WebRTC unified interface](https://developers.openai.com/ap
 See [conversation accuracy report](conversation-accuracy-report.md) for the restricted tools, structured fields, migration and live-call checklist.
 
 Confirmations of spoken readbacks are recognized automatically. Names/devices are checked together in the short final summary; only unclear facts or an incomplete/unconfirmed callback need extra questions. Corrections retain their own transcript evidence even if later noise or delayed ASR intervenes. Repeating a confirmed clinic lookup does not restart clinic confirmation.
+
+
+### Background noise and response timing
+
+New browser calls explicitly enable OpenAI input noise reduction before VAD and model processing. Agent settings offer laptop/room microphone (`far_field`, default), headset/close microphone (`near_field`), or Off. Browser echo cancellation and noise suppression remain enabled. These filters reduce noise; they cannot guarantee rejection of nearby speech or music. No hard amplitude gate is used because clipping quiet speech would damage names and identifiers.
+
+English transcription now has IT vocabulary guidance without caller names, clinic directory contents or device values. Ryan is instructed to ignore unrelated background sounds and keep the current intake context. Guidance is not a guarantee that noise will never be transcribed.
+
+Voice detection patience remains Low/Patient by default. Try Medium/Balanced for quicker conversational turns; High/Fast can cut off pauses during spelling. Saved changes apply to new calls. See [OpenAI VAD](https://developers.openai.com/api/docs/guides/realtime-vad) and [input audio configuration](https://developers.openai.com/api/reference/resources/realtime/subresources/calls/methods/create).
+
+Expand **Call events and response timing** to inspect provider speech-start/end events, audio-commit-to-transcription time, detected-speech-end-to-response time, response-to-playback time, and tool duration including waits for transcription evidence. These measure server event arrival, not the exact instant the person stopped talking or sound reached the speaker. Turn detection may already have waited before emitting speech_stopped. Diagnostics respect the logging switch; no raw audio is recorded.
+
+Validation: 44 backend tests, including microphone profile selection and timing events, plus two mocked browser tests. Real microphone performance and provider latency still require a live call in the caller's environment.

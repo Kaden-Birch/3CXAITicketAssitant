@@ -81,6 +81,9 @@ export const agentSchema = z
     maxQuestions: z.number().int().min(2).max(20),
     requireConfirmation: z.literal(true),
     vadEagerness: z.enum(["low", "medium", "high"]).default("low"),
+    noiseReduction: z
+      .enum(["far_field", "near_field", "off"])
+      .default("far_field"),
     interruptionEnabled: z.boolean().default(true),
     ticketCreationEnabled: z.boolean().default(true),
     retentionDays: z.number().int().min(1).max(365).default(30),
@@ -94,6 +97,7 @@ export const defaultAgent = {
   maxQuestions: 8,
   requireConfirmation: true as const,
   vadEagerness: "low" as const,
+  noiseReduction: "far_field" as const,
   interruptionEnabled: true,
   ticketCreationEnabled: true,
   retentionDays: 30,

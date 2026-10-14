@@ -67,3 +67,8 @@ No new SQL migration is needed for this follow-up. Optional evidence metadata is
 The user requested one name question with no routine name confirmation. Clear two-part answers to the full-name question are now captured directly from the caller transcript, including when the question transcript arrives late. A conflicting AI-proposed spelling is repaired using the captured name without asking the caller to repeat it. Missing or unclear name parts still require clarification. Name confirmation calls return captured facts and no question; names are excluded from the spoken confirmation fields in the final issue summary. Ticket wording identifies the name as caller-provided rather than verified identity. Clinic, callback and final ticket-approval gates are unchanged.
 
 The full backend suite passed before adding the delayed-name-question regression; the updated 13-test intake suite, TypeScript/build and formatting passed afterward. CI runs the complete current suite. No SQL migration or credential change is required.
+
+
+### Background noise follow-up
+
+Added explicit pre-VAD input noise reduction with selectable room/headset profiles, English IT transcription guidance, and instructions to ignore background noise without revisiting previous answers. Added separate transcription, response, playback and tool-wait diagnostics to identify intermittent pauses. Low semantic VAD remains the saved default; Balanced is available for shorter waits. Filtering does not guarantee correct transcription or remove other speakers. Verified with 44 backend tests and two mocked browser tests; live acoustic evaluation is outstanding.

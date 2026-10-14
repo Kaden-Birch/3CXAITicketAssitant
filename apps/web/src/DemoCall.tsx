@@ -370,10 +370,17 @@ export function DemoCall({ request }: { request: Request }) {
             </section>
           )}
           <details>
-            <summary>Call events</summary>
+            <summary>Call events and response timing</summary>
+            <p className="muted">
+              Timing begins when the provider detects speech ending, which may
+              follow a pause. Transcription, response creation, playback and
+              tool waits are measured separately.
+            </p>
             {snapshot.events.map((e: any, i: number) => (
               <p key={i}>
-                <small>{e.event_type}</small>
+                <small>
+                  {e.event_type} · {new Date(e.event_time).toLocaleTimeString()}
+                </small>
                 <br />
                 {e.public_summary}
               </p>

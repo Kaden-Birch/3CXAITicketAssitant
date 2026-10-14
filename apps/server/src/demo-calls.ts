@@ -97,6 +97,9 @@ type Active = {
   lastSeen: number;
   startedAt: number;
   speaking?: boolean;
+  speechStoppedAt?: number;
+  responseCreatedAt?: number;
+  committedAt?: Map<string, number>;
   responseId?: string;
   generation?: number;
   truncatedItems?: Set<string>;
@@ -207,9 +210,13 @@ export class DemoCalls {
   private event(id: string, type: string, summary: string, eventId?: string) {
     if (
       !this.o.store.agent().diagnosticLogging &&
-      ["tool.requested", "tool.completed", "caller.speech_started"].includes(
-        type,
-      )
+      (type.startsWith("timing.") ||
+        [
+          "tool.requested",
+          "tool.completed",
+          "caller.speech_started",
+          "caller.speech_stopped",
+        ].includes(type))
     )
       return;
     const d = this.o.store.db;
@@ -371,7 +378,16 @@ export class DemoCalls {
           output_modalities: ["audio"],
           audio: {
             input: {
-              transcription: { model: "gpt-4o-transcribe", language: "en" },
+              noise_reduction:
+                agent.noiseReduction === "off"
+                  ? null
+                  : { type: agent.noiseReduction },
+              transcription: {
+                model: "gpt-4o-transcribe",
+                language: "en",
+                prompt:
+                  "English-language IT support call. Terms include ChinookIT, Dentrix, printers, workstations and X-rays. Names and device labels may be spelled aloud. Preserve spoken letters and digits exactly; do not complete missing digits or normalize device identifiers.",
+              },
               turn_detection: semanticTurnDetection(agent, false),
             },
             output: { voice: config.voice },
@@ -574,12 +590,21 @@ export class DemoCalls {
     const type = e.type;
     if (type === "response.created") {
       a.responseId = e.response?.id;
+      a.responseCreatedAt = Date.now();
+      if (a.speechStoppedAt !== undefined) {
+        this.event(
+          id,
+          "timing.response",
+          `Speech-end detection to response creation: ${Math.max(0, Date.now() - a.speechStoppedAt)} ms`,
+        );
+      }
       a.responseStartTurns ??= new Map();
       if (a.responseId) a.responseStartTurns.set(a.responseId, a.commitOrder);
       return;
     }
     if (type === "input_audio_buffer.speech_started") {
       a.speaking = true;
+      a.speechStoppedAt = undefined;
       a.generation = (a.generation ?? 0) + 1;
       this.event(
         id,
@@ -592,6 +617,23 @@ export class DemoCalls {
     }
     if (type === "input_audio_buffer.speech_stopped") {
       a.speaking = false;
+      a.speechStoppedAt = Date.now();
+      this.event(
+        id,
+        "caller.speech_stopped",
+        "Provider detected end of caller speech",
+        e.event_id,
+      );
+      return;
+    }
+    if (type === "output_audio_buffer.started") {
+      if (a.responseCreatedAt !== undefined)
+        this.event(
+          id,
+          "timing.audio",
+          `Response creation to playback start: ${Math.max(0, Date.now() - a.responseCreatedAt)} ms`,
+          e.event_id,
+        );
       return;
     }
     if (
@@ -617,6 +659,8 @@ export class DemoCalls {
     ) {
       if (!a.committed.has(e.item_id)) {
         a.committed.set(e.item_id, ++a.commitOrder);
+        a.committedAt ??= new Map();
+        a.committedAt.set(e.item_id, Date.now());
         a.intake.callerCommitted(a.commitOrder);
       }
       return;
@@ -634,6 +678,14 @@ export class DemoCalls {
       if (!text) return;
       const item = String(e.item_id ?? e.event_id ?? "");
       if (!item) return;
+      if (user && a.committedAt?.has(item)) {
+        this.event(
+          id,
+          "timing.transcription",
+          `Audio commit to transcription: ${Math.max(0, Date.now() - a.committedAt.get(item)!)} ms`,
+        );
+        a.committedAt.delete(item);
+      }
       const turnId = digest(
           id +
             item +
@@ -759,6 +811,7 @@ export class DemoCalls {
               "tool.requested",
               `Tool requested: ${String(call.name).slice(0, 80)}`,
             );
+            const toolStartedAt = Date.now();
             let result: unknown;
             try {
               if (
@@ -769,13 +822,19 @@ export class DemoCalls {
                   "update_intake",
                 ].includes(call.name)
               ) {
-                const deadline = Date.now() + 3000;
+                const waitStartedAt = Date.now();
+                const deadline = waitStartedAt + 3000;
                 while (
                   !a.intake.transcriptCurrent() &&
                   Date.now() < deadline &&
                   this.active.has(id)
                 )
                   await new Promise((r) => setTimeout(r, 25));
+                this.event(
+                  id,
+                  "timing.evidence",
+                  `Waiting for transcription evidence: ${Date.now() - waitStartedAt} ms`,
+                );
               }
               if (!this.active.has(id)) return;
               result = await a.intake.execute(
@@ -785,7 +844,7 @@ export class DemoCalls {
               this.event(
                 id,
                 "tool.completed",
-                `Tool completed: ${String(call.name).slice(0, 80)}`,
+                `Tool completed: ${String(call.name).slice(0, 80)} (${Date.now() - toolStartedAt} ms including evidence wait)`,
               );
             } catch (err) {
               const code =
