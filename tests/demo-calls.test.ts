@@ -395,7 +395,7 @@ test("a delayed earlier yes cannot confirm a later draft; corrections preserve f
   );
 });
 
-test("existing prompts receive mandatory continuity, one greeting and semantic low VAD", async (t) => {
+test("existing prompts receive mandatory continuity, one greeting and semantic balanced VAD", async (t) => {
   const f = await fixture();
   t.after(async () => {
     await f.manager.close();
@@ -429,7 +429,7 @@ test("existing prompts receive mandatory continuity, one greeting and semantic l
   );
   assert.deepEqual(session.audio.input.turn_detection, {
     type: "semantic_vad",
-    eagerness: "low",
+    eagerness: "medium",
     create_response: false,
     interrupt_response: true,
   });
@@ -442,7 +442,7 @@ test("existing prompts receive mandatory continuity, one greeting and semantic l
   const update = f.socket.sent.find((e) => e.type === "session.update");
   assert.deepEqual(update.session.audio.input.turn_detection, {
     type: "semantic_vad",
-    eagerness: "low",
+    eagerness: "medium",
     create_response: true,
     interrupt_response: true,
   });

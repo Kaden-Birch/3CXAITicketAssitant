@@ -137,7 +137,7 @@
           "const": true
         },
         "vadEagerness": {
-          "default": "low",
+          "default": "medium",
           "type": "string",
           "enum": [
             "low",

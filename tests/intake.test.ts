@@ -263,10 +263,10 @@ test("incomplete names and seven-digit callbacks cannot advance to ticket prepar
   assert.equal(confirmed.status, "clarification_required");
   assert.match(confirmed.question, /area code/);
 });
-test("semantic VAD defaults to patient low eagerness and preserves interruption controls", () => {
+test("semantic VAD defaults to balanced medium eagerness and preserves interruption controls", () => {
   assert.deepEqual(semanticTurnDetection({}), {
     type: "semantic_vad",
-    eagerness: "low",
+    eagerness: "medium",
     create_response: true,
     interrupt_response: true,
   });

@@ -855,11 +855,11 @@ function Agent({
           <label>
             Voice detection patience
             <select
-              value={a.vadEagerness ?? "low"}
+              value={a.vadEagerness ?? "medium"}
               onChange={(e) => setA({ ...a, vadEagerness: e.target.value })}
             >
               <option value="low">Low (Patient)</option>
-              <option value="medium">Medium (Balanced)</option>
+              <option value="medium">Medium (Standard / Balanced)</option>
               <option value="high">High (Fast)</option>
             </select>
           </label>

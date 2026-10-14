@@ -12,7 +12,7 @@ One immutable draft is submitted at most once. Correcting an unsubmitted draft s
 
 ## Audio and shared behaviour
 
-The browser captures microphone audio over WebRTC. The backend submits the SDP offer to OpenAI's unified `/v1/realtime/calls` endpoint using the encrypted saved key, then attaches a server control WebSocket to that call. No long-lived API key or client secret is returned to the browser. Ryan's saved prompt, greeting, semantic VAD eagerness and model/voice configuration are snapshotted for the call. Mandatory continuity/confidentiality rules supplement saved custom prompts. Low (Patient) semantic VAD and interruption support are the defaults. Tools run on the backend through the shared conversation and Syncro services.
+The browser captures microphone audio over WebRTC. The backend submits the SDP offer to OpenAI's unified `/v1/realtime/calls` endpoint using the encrypted saved key, then attaches a server control WebSocket to that call. No long-lived API key or client secret is returned to the browser. Ryan's saved prompt, greeting, semantic VAD eagerness and model/voice configuration are snapshotted for the call. Mandatory continuity/confidentiality rules supplement saved custom prompts. Medium (Standard / Balanced) semantic VAD and interruption support are the defaults. Tools run on the backend through the shared conversation and Syncro services.
 
 Use **Mute microphone** or **End call**. Navigating away releases the media tracks and attempts server hangup. Heartbeat loss ends the server session after 30 seconds; a five-minute limit bounds tests. One active test per admin and five total tests are allowed. Syncro requests share a process-wide limiter below the documented per-IP limit.
 
@@ -41,7 +41,7 @@ New browser calls explicitly enable OpenAI input noise reduction before VAD and 
 
 English transcription now has IT vocabulary guidance without caller names, clinic directory contents or device values. Ryan is instructed to ignore unrelated background sounds and keep the current intake context. Guidance is not a guarantee that noise will never be transcribed.
 
-Voice detection patience remains Low/Patient by default. Try Medium/Balanced for quicker conversational turns; High/Fast can cut off pauses during spelling. Saved changes apply to new calls. See [OpenAI VAD](https://developers.openai.com/api/docs/guides/realtime-vad) and [input audio configuration](https://developers.openai.com/api/reference/resources/realtime/subresources/calls/methods/create).
+Voice detection now defaults to Medium (Standard / Balanced). Low/Patient remains available for extra pauses during spelling; High/Fast can cut off pauses. Saved changes apply to new calls. See [OpenAI VAD](https://developers.openai.com/api/docs/guides/realtime-vad) and [input audio configuration](https://developers.openai.com/api/reference/resources/realtime/subresources/calls/methods/create).
 
 Expand **Call events and response timing** to inspect provider speech-start/end events, audio-commit-to-transcription time, detected-speech-end-to-response time, response-to-playback time, and tool duration including waits for transcription evidence. These measure server event arrival, not the exact instant the person stopped talking or sound reached the speaker. Turn detection may already have waited before emitting speech_stopped. Diagnostics respect the logging switch; no raw audio is recorded.
 

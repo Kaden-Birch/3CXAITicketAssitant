@@ -80,7 +80,7 @@ export const agentSchema = z
     prompt: z.string().min(1).max(8000),
     maxQuestions: z.number().int().min(2).max(20),
     requireConfirmation: z.literal(true),
-    vadEagerness: z.enum(["low", "medium", "high"]).default("low"),
+    vadEagerness: z.enum(["low", "medium", "high"]).default("medium"),
     noiseReduction: z
       .enum(["far_field", "near_field", "off"])
       .default("far_field"),
@@ -96,7 +96,7 @@ export const defaultAgent = {
   prompt: conversationPolicy,
   maxQuestions: 8,
   requireConfirmation: true as const,
-  vadEagerness: "low" as const,
+  vadEagerness: "medium" as const,
   noiseReduction: "far_field" as const,
   interruptionEnabled: true,
   ticketCreationEnabled: true,

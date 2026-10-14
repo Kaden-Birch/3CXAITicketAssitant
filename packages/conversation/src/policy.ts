@@ -14,7 +14,7 @@ export function semanticTurnDetection(
 ) {
   return {
     type: "semantic_vad",
-    eagerness: settings.vadEagerness ?? "low",
+    eagerness: settings.vadEagerness ?? "medium",
     create_response: createResponse,
     interrupt_response: settings.interruptionEnabled ?? true,
   };
