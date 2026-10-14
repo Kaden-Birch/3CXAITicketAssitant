@@ -349,7 +349,7 @@ test("call regression: trailing noise preserves Kora correction and confirmation
   const stale = await f.execute("update_intake", {
     fields: { firstName: "Cora" },
   });
-  assert.equal(stale.status, "retry_update");
+  assert.equal(stale.status, "saved");
   assert.equal(stale.fields.firstName, "Kora");
   const prepared = await f.execute("prepare_ticket", {});
   assert.equal(prepared.status, "confirmation_required");
@@ -458,7 +458,7 @@ test("a later correction in the same utterance wins and formatting-only callback
   const stale = await f.execute("update_intake", {
     fields: { firstName: "Cora" },
   });
-  assert.equal(stale.status, "retry_update");
+  assert.equal(stale.status, "saved");
   assert.equal(stale.fields.firstName, "Kora");
   f.intake.assistantTurn("Is 4035550136 the callback number?");
   f.caller("Yes");
@@ -476,10 +476,13 @@ test("a clear full-name answer is captured once and an AI mishearing is repaired
   const result = await f.execute("update_intake", {
     fields: { firstName: "Rena", lastName: "Tester" },
   });
-  assert.equal(result.status, "retry_update");
+  assert.equal(result.status, "saved");
   assert.equal(result.fields.firstName, "Lena");
   assert.equal(result.fields.lastName, "Tester");
-  assert.match(result.instruction, /Do not substitute/);
+  assert.equal(result.nameStatus, "captured");
+  assert.equal(result.nameConfirmationRequired, false);
+  assert.equal(result.question, undefined);
+  assert.doesNotMatch(result.instruction, /Use the captured firstName:/);
   const collected = await f.execute("confirm_intake", {
     fields: ["firstName", "lastName"],
   });
@@ -497,7 +500,7 @@ test("a delayed full-name question still captures its already supplied answer", 
   });
   assert.equal(result.fields.firstName, "Lena");
   assert.equal(result.fields.lastName, "Tester");
-  assert.equal(result.status, "retry_update");
+  assert.equal(result.status, "saved");
   assert.equal(
     (await f.execute("confirm_intake", { fields: ["firstName", "lastName"] }))
       .status,
@@ -583,4 +586,28 @@ test("room number words need no separate confirmation and submission wording acc
     draftId: prepared.draftId,
   });
   assert.equal(result.outcome, "previewed");
+});
+
+test("competing first and last name spellings are silently ignored after a clear name answer", async (t) => {
+  const f = fixture(t);
+  f.intake.assistantTurn("What's your full name?");
+  f.caller("Maren Smyth.");
+  for (const fields of [
+    { firstName: "Karen", lastName: "Smith" },
+    { firstName: "", lastName: "" },
+  ]) {
+    const result = await f.execute("update_intake", { fields });
+    assert.equal(result.status, "saved");
+    assert.equal(result.fields.firstName, "Maren");
+    assert.equal(result.fields.lastName, "Smyth");
+    assert.equal(result.nameStatus, "captured");
+    assert.equal(result.question, undefined);
+    assert.equal(result.field, undefined);
+  }
+  f.caller("Actually, my last name is Smith.");
+  const correction = await f.execute("update_intake", {
+    fields: { lastName: "Smith" },
+  });
+  assert.equal(correction.fields.lastName, "Smith");
+  assert.equal(correction.fields.firstName, "Maren");
 });

@@ -79,3 +79,8 @@ Added explicit pre-VAD input noise reduction with selectable room/headset profil
 A confirmed callback stays locked through unrelated answers, formatting changes, empty model updates and late interruption events. Only a caller-supported correction changes the number and requires a new readback. Missing-field responses include current captured facts and name exactly one field; malformed tool arguments request silent internal repair instead of more intake questions. Clear device locations are accepted without separate confirmation, and room-number words/digits compare equivalently without changing asset identifiers. Final summary plus a submission question can authorize one submission; completion instructions end intake. Mandatory speech guidance removes repeated “one more detail” and progress narration.
 
 Regression checks use fictional caller details and cover callback preservation, explicit corrections, room-number normalization and a single final submission yes. These enforce backend state; natural speech behavior still needs live testing.
+
+
+### Caller name spelling follow-up
+
+A captured name and an unsupported model spelling previously produced a retry result. The model could narrate that as a nonexistent saved-record spelling mismatch despite instructions to repair it silently. Known first/last names now retain caller evidence and return normal saved status when the model proposes unsupported or empty values. Results explicitly identify the name as captured and requiring no confirmation. Caller-supported corrections still apply. A regression covers both competing first/last spellings and subsequent caller corrections using fictional names.

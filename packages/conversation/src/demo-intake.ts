@@ -403,6 +403,11 @@ export class DemoIntake {
       fields: this.state.fields,
       confirmed: this.state.confirmed,
       unavailable: this.state.unavailable,
+      nameStatus:
+        this.state.fields.firstName && this.state.fields.lastName
+          ? "captured"
+          : "incomplete",
+      nameConfirmationRequired: false,
       callbackValid: !!this.state.callback?.e164,
       clinicConfirmed: this.state.clinicConfirmed,
       unmatchedClinic: this.state.unmatched,
@@ -586,6 +591,7 @@ export class DemoIntake {
         )) {
           let value = this.sanitize(rawValue);
           if (!value && this.state.fields[field]) {
+            if (field === "firstName" || field === "lastName") continue;
             problems.push({
               field,
               repair: true,
@@ -606,6 +612,12 @@ export class DemoIntake {
           if (guarded && value) {
             const supported = this.supportingValue(field as Field, value);
             if (!supported) {
+              // The transcript already captured this name. A model spelling proposal is not a caller correction.
+              if (
+                (field === "firstName" || field === "lastName") &&
+                this.state.fields[field]
+              )
+                continue;
               problems.push({
                 field,
                 repair: !!this.state.fields[field],
@@ -699,7 +711,7 @@ export class DemoIntake {
         return {
           ...this.view(),
           instruction:
-            "Do not narrate these internal results. Keep captured facts; ask only the next unknown detail. Names need no confirmation. Use the final summary for the issue and device.",
+            "Accept the caller name in fields as already captured. There is no spelling mismatch, saved-record comparison or name confirmation needed. Never mention an internal spelling proposal or offer alternate names. Ask only the next unknown detail directly. Do not narrate these internal results. Use the final summary for the issue and device.",
           ...(problems.length
             ? problems[0].repair
               ? {
