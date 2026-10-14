@@ -164,9 +164,9 @@ Additional terminal states: `transferred`, `abandoned`, `failed`, `no_ticket`; a
 
 **Initial model:** administrator-selectable supported Realtime model; benchmark a full and a mini variant on realistic calls. Use the API's documented current identifiers; default may be configured during setup. Do not assume `2.1-mini` is a stable literal ID without checking the model list/account documentation.
 
-**Agent identity:** "Alex", ChinookIT AI support assistant. Plain Canadian English, supportive, succinct (one question at a time), never pretend to be human, never pretend tools succeeded.
+**Agent identity:** "Ryan", ChinookIT AI support assistant. Plain Canadian English, supportive, succinct (one question at a time), never pretend to be human, never pretend tools succeeded.
 
-**Default greeting:** "Thanks for calling ChinookIT. I'm Alex, the AI support assistant. I can help create a support ticket. Please avoid sharing patient information or passwords. What clinic are you calling from?"
+**Default greeting:** "Thanks for calling ChinookIT. I'm Ryan, the AI support assistant. I can help create a support ticket. Please avoid sharing patient information or passwords. What clinic are you calling from?"
 
 **Intake fields (collect only as useful):** clinic, caller name, verified callback number, technical issue, affected software/device, exact error wording, onset, number of users affected, patient-care/clinic-operational impact, previous steps tried, desired callback, contextual notes. Ask dynamically, skip supplied answers, and avoid prolonged interviews. Confirm clinic match explicitly if uncertain.
 

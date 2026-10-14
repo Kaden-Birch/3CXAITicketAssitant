@@ -1,0 +1,36 @@
+services:
+  web:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+    environment:
+      BROWSER_DEMO_CALLS: ${BROWSER_DEMO_CALLS:-true}
+      DEMO_MODE: ${DEMO_MODE:-true}
+      APP_ORIGIN: ${APP_ORIGIN:-http://localhost:3000}
+      MASTER_ENCRYPTION_KEY: ${MASTER_ENCRYPTION_KEY:-}
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - receptionist-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    restart: unless-stopped
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 1g
+    cpus: 2
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+volumes:
+  receptionist-data:

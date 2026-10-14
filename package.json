@@ -1,0 +1,46 @@
+{
+  "name": "chinookit-ai-receptionist",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24 <26"
+  },
+  "workspaces": [
+    "apps/server",
+    "apps/web",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "node --import tsx apps/server/src/index.ts",
+    "build": "tsc --noEmit && vite build --config apps/web/vite.config.ts",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "test:e2e": "playwright test",
+    "schema": "node --import tsx scripts/config-schema.ts && node --import tsx scripts/api-schema.ts",
+    "start": "node --import tsx apps/server/src/index.ts",
+    "lint": "prettier --check apps packages scripts tests playwright.config.ts tsconfig.json package.json",
+    "format": "prettier --write apps packages scripts tests playwright.config.ts tsconfig.json package.json"
+  },
+  "dependencies": {
+    "@fastify/cookie": "11.1.3",
+    "@fastify/rate-limit": "11.2.1",
+    "@fastify/static": "10.1.6",
+    "argon2": "0.45.1",
+    "fastify": "5.12.7",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "tsx": "4.23.15",
+    "ws": "8.22.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.0",
+    "@types/node": "26.6.5",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@types/ws": "8.18.2",
+    "prettier": "3.9.10",
+    "typescript": "7.0.2",
+    "vite": "8.3.4"
+  }
+}

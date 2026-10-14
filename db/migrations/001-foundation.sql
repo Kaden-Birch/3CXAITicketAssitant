@@ -1,0 +1,17 @@
+CREATE TABLE users(id TEXT PRIMARY KEY,email TEXT UNIQUE NOT NULL,password_hash TEXT NOT NULL,role TEXT NOT NULL CHECK(role IN ('admin','support')),disabled_at TEXT,created_at TEXT NOT NULL);
+CREATE TABLE auth_sessions(token_hash TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),csrf TEXT NOT NULL,expires_at INTEGER NOT NULL);
+CREATE TABLE credentials(provider TEXT PRIMARY KEY,encrypted_blob TEXT NOT NULL,key_version INTEGER NOT NULL DEFAULT 1,updated_at TEXT NOT NULL,updated_by TEXT NOT NULL REFERENCES users(id));
+CREATE TABLE app_settings(key TEXT PRIMARY KEY,safe_json_value TEXT NOT NULL);
+CREATE TABLE prompt_versions(id TEXT PRIMARY KEY,content_json TEXT NOT NULL,created_at TEXT NOT NULL,created_by TEXT REFERENCES users(id));
+CREATE TABLE sessions(id TEXT PRIMARY KEY,started_at TEXT NOT NULL,ended_at TEXT,state TEXT NOT NULL,outcome TEXT NOT NULL,clinic_name TEXT NOT NULL,caller_number_masked TEXT NOT NULL,summary TEXT NOT NULL,prompt_version_id TEXT NOT NULL REFERENCES prompt_versions(id),transcript_status TEXT NOT NULL,ticket_id TEXT,is_demo INTEGER NOT NULL DEFAULT 0);
+CREATE INDEX sessions_time ON sessions(started_at DESC,id DESC);
+CREATE INDEX sessions_outcome ON sessions(outcome);
+CREATE TABLE conversation_turns(id TEXT PRIMARY KEY,session_id TEXT NOT NULL REFERENCES sessions(id),turn_index INTEGER NOT NULL,speaker TEXT NOT NULL,text_redacted TEXT NOT NULL,is_interrupted INTEGER NOT NULL DEFAULT 0,transcription_status TEXT NOT NULL,UNIQUE(session_id,turn_index));
+CREATE VIRTUAL TABLE turns_fts USING fts5(text_redacted,session_id UNINDEXED);
+CREATE TRIGGER turns_insert AFTER INSERT ON conversation_turns BEGIN INSERT INTO turns_fts(rowid,text_redacted,session_id) VALUES(new.rowid,new.text_redacted,new.session_id); END;
+CREATE TRIGGER turns_delete AFTER DELETE ON conversation_turns BEGIN DELETE FROM turns_fts WHERE rowid=old.rowid; END;
+CREATE TABLE call_events(id TEXT PRIMARY KEY,session_id TEXT NOT NULL REFERENCES sessions(id),sequence INTEGER NOT NULL,event_type TEXT NOT NULL,event_time TEXT NOT NULL,actor TEXT NOT NULL,severity TEXT NOT NULL,schema_version INTEGER NOT NULL DEFAULT 1,public_summary TEXT NOT NULL,UNIQUE(session_id,sequence));
+CREATE TABLE audit_events(id TEXT PRIMARY KEY,actor_user_id TEXT REFERENCES users(id),operation TEXT NOT NULL,target_id TEXT NOT NULL,occurred_at TEXT NOT NULL);
+CREATE TABLE ticket_drafts(id TEXT PRIMARY KEY,session_id TEXT NOT NULL REFERENCES sessions(id),content_json TEXT NOT NULL,caller_confirmed_at TEXT,idempotency_key TEXT UNIQUE NOT NULL,status TEXT NOT NULL);
+CREATE TABLE ticket_jobs(id TEXT PRIMARY KEY,draft_id TEXT UNIQUE NOT NULL REFERENCES ticket_drafts(id),state TEXT NOT NULL,attempt_count INTEGER NOT NULL DEFAULT 0,next_attempt_at TEXT,last_error_code TEXT,syncro_ticket_id TEXT);
+CREATE TABLE retention_runs(id TEXT PRIMARY KEY,started_at TEXT NOT NULL,finished_at TEXT,policy_version TEXT NOT NULL,deleted_counts_json TEXT);
